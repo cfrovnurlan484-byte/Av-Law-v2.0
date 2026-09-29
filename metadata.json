@@ -1,0 +1,6 @@
+{
+  "name": "Av-Law",
+  "description": "Azərbaycan qanunvericiliyi üzrə hüquqşünaslar və vəkillər üçün interaktiv nəzəriyyə yoxlaması, kazuslar, məqalə sərgiləməsi və hüquqi mənbələr platforması.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
