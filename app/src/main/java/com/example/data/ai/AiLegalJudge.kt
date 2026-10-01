@@ -18,7 +18,8 @@ data class EvaluationResult(
     val reasoningScore: Int,
     val fluencyScore: Int,
     val feedback: String,
-    val recommendations: String
+    val recommendations: String,
+    val isZeroPenalty: Boolean = false
 )
 
 data class AppealResult(
@@ -31,53 +32,63 @@ object AiLegalJudge {
 
     private val client by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(25, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(25, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
             .build()
     }
 
     suspend fun evaluateTheoryExam(topic: String, transcript: String): EvaluationResult = withContext(Dispatchers.IO) {
+        val trimmed = transcript.trim()
+        if (trimmed.isBlank() || trimmed.length < 5) {
+            return@withContext buildZeroResult("Cavab təqdim edilməmişdir və ya boşdur. Azərbaycan qanunvericiliyinə dair heç bir hüquqi əsaslandırma tapılmadı.")
+        }
+
         val apiKey = try { BuildConfig.GEMINI_API_KEY } catch (e: Exception) { "" }
         if (!apiKey.isNullOrBlank() && apiKey != "MY_GEMINI_API_KEY") {
             try {
                 val prompt = """
                     Sən Azərbaycan Respublikasının Qanunvericiliyi üzrə Dövlət İmtahan Mərkəzi və Vəkillər Kollegiyasının Ali Ekspert-Münsifisən.
                     Tələbəyə verilən mövzu: "$topic"
-                    Tələbənin şifahi izahının transkripti: "$transcript"
+                    Tələbənin cavabı: "$trimmed"
 
-                    Xahiş olunur ki, tələbənin cavabını Azərbaycan qanunvericiliyinə (AR Konstitusiyası, Mülki Məcəllə, Cinayət Məcəlləsi, Əmək Məcəlləsi və s.) uyğun qiymətləndirəsən.
+                    QİYMƏTLƏNDİRMƏ VƏ CƏZA TƏLƏBLƏRİ:
+                    1. Əgər təqdim edilən cavab mövzuya tamamilə aidiyyətsizdirsə, boşdursa, qeyri-ciddidirsə və ya cəfəngiyatdırsa (məs: "asdf", "bilmirəm", "salam", "123", təsadüfi sözlər), DƏRHAL VƏ MÜTLƏQ DƏQİQ 0 XAL VER. Heç bir təsəlli və ya standart keçid balı vermə!
+                    2. Əgər cavab mövzuya aiddirsə, onun hüquqi məntiqini, arqumentasiyasını, AR Konstitusiyası və müvafiq Məcəllələrə uyğunluğunu qiymətləndir (0-100 aralığında).
+
                     Yalnız və yalnız aşağıdakı JSON formatında cavab ver:
                     {
-                      "score": 85,
-                      "accuracyScore": 30,
-                      "terminologyScore": 22,
-                      "reasoningScore": 21,
-                      "fluencyScore": 12,
-                      "verdict": "Müvəffəqiyyətli (Yaxşı)",
-                      "feedback": "Hüquqi əsaslandırma və terminlərin istifadəsi yüksək səviyyədədir...",
-                      "recommendations": "Mülki Məcəllənin müvafiq maddələrinə daha dərindən istinad edin..."
+                      "score": 0,
+                      "accuracyScore": 0,
+                      "terminologyScore": 0,
+                      "reasoningScore": 0,
+                      "fluencyScore": 0,
+                      "verdict": "Qeyri-kafi (0 Xal)",
+                      "feedback": "Cavab mövzuya tamamilə aidiyyətsizdir...",
+                      "recommendations": "Mövzunu AR Qanunvericiliyi üzrə dərindən təkrarlayın.",
+                      "isZeroPenalty": true
                     }
-                    Xalların bölgüsü:
-                    accuracyScore: maksimum 35
-                    terminologyScore: maksimum 25
-                    reasoningScore: maksimum 25
-                    fluencyScore: maksimum 15
-                    score: accuracyScore + terminologyScore + reasoningScore + fluencyScore (cəmi 0-100)
+                    Qeyd: Xallar: accuracyScore (0-35), terminologyScore (0-25), reasoningScore (0-25), fluencyScore (0-15).
+                    Cəm score = accuracyScore + terminologyScore + reasoningScore + fluencyScore.
+                    Əgər score == 0 olarsa, isZeroPenalty true olmalıdır.
                 """.trimIndent()
 
                 val result = callGeminiApi(prompt, apiKey)
                 if (result != null) return@withContext result
             } catch (e: Exception) {
-                // Fall back to rule-based legal evaluator
+                // Fall back to rigorous legal evaluator
             }
         }
 
-        // Robust Azerbaijani legal heuristic analysis
-        evaluateLocally(topic, transcript, isCase = false)
+        evaluateLocally(topic, trimmed, isCase = false)
     }
 
     suspend fun evaluateCaseStudy(caseTitle: String, caseDescription: String, userSolution: String): EvaluationResult = withContext(Dispatchers.IO) {
+        val trimmed = userSolution.trim()
+        if (trimmed.isBlank() || trimmed.length < 5) {
+            return@withContext buildZeroResult("Kazusun həlli təqdim edilməyib və ya boşdur.")
+        }
+
         val apiKey = try { BuildConfig.GEMINI_API_KEY } catch (e: Exception) { "" }
         if (!apiKey.isNullOrBlank() && apiKey != "MY_GEMINI_API_KEY") {
             try {
@@ -85,10 +96,13 @@ object AiLegalJudge {
                     Sən Azərbaycan Respublikası Məhkəmə-Hüquq Şurasının kazus qiymətləndirmə komissiyasının rəhbərisən.
                     Kazus: "$caseTitle"
                     Faktlar: "$caseDescription"
-                    Hüquqşünasın həlli: "$userSolution"
+                    Hüquqşünasın həlli: "$trimmed"
 
-                    Cavabı Azərbaycan qanunvericiliyinə uyğun dəyərləndir.
-                    Yalnız və yalnız aşağıdakı JSON formatında cavab qaytar:
+                    QİYMƏTLƏNDİRMƏ TƏLƏBİ:
+                    1. Cavab aidiyyətsiz, boş, mənasız və ya qeyri-ciddidirsə DƏQİQ 0 XAL VER (score: 0).
+                    2. Cavab uyğundursa AR qanunvericiliyinə (maddələr, prosessual qaydalar, məhkəmə presedentləri) əsaslanaraq 0-100 bal ver.
+
+                    Yalnız aşağıdakı JSON formatında cavab qaytar:
                     {
                       "score": 82,
                       "accuracyScore": 28,
@@ -96,8 +110,9 @@ object AiLegalJudge {
                       "reasoningScore": 20,
                       "fluencyScore": 12,
                       "verdict": "Müvəffəqiyyətli",
-                      "feedback": "Kazusun hüquqi tövsifi və təqdim olunan qərar layihəsi əsaslandırılıb...",
-                      "recommendations": "Məhkəmə təcrübəsinə və Ali Məhkəmənin Plenum qərarlarına istinadları gücləndirin."
+                      "feedback": "...",
+                      "recommendations": "...",
+                      "isZeroPenalty": false
                     }
                 """.trimIndent()
 
@@ -108,7 +123,7 @@ object AiLegalJudge {
             }
         }
 
-        evaluateLocally(caseTitle, userSolution, isCase = true)
+        evaluateLocally(caseTitle, trimmed, isCase = true)
     }
 
     suspend fun reviewAppeal(
@@ -124,15 +139,15 @@ object AiLegalJudge {
                     Sən Azərbaycan Respublikası Vəkillər Kollegiyasının Müstəqil Apellyasiya Kollegiyasının sədrisən.
                     Məsələ: "$examTitle"
                     İlkin cavab: "$userAnswer"
-                    İstifadəçinin qoyduğu xal (risk): $wager xal
-                    İstifadəçinin apellyasiya əsaslandırması: "$justification"
+                    Qoyulan mərc: $wager xal
+                    Apellyasiya əsaslandırması: "$justification"
 
-                    Şikayəti obyektiv qiymətləndir. Əgər istifadəçinin hüquqi arqumentləri əsaslıdırsa şikayəti təmin et. Əgər arqumentlər səthi və ya əsassızdırsa rədd et.
+                    Şikayəti obyektiv qiymətləndir. Əsaslıdırsa təmin et, əsassızdırsa rədd et.
                     Yalnız JSON formatında cavab ver:
                     {
                       "isSuccess": true,
                       "scoreAdjustment": 10,
-                      "reasoning": "Apellyasiya Kollegiyası təqdim edilmiş hüquqi əsaslandırmanı qəbul edir. Tələbənin istinad etdiyi norma faktiki hallarla tam uzlaşır."
+                      "reasoning": "..."
                     }
                 """.trimIndent()
 
@@ -142,7 +157,7 @@ object AiLegalJudge {
                     val obj = JSONObject("{$cleaned}")
                     return@withContext AppealResult(
                         isSuccess = obj.optBoolean("isSuccess", true),
-                        reasoning = obj.optString("reasoning", "Şikayətə baxıldı və müvafiq qərar qəbul edildi."),
+                        reasoning = obj.optString("reasoning", "Şikayətə baxıldı və qərar qəbul edildi."),
                         scoreAdjustment = obj.optInt("scoreAdjustment", 10)
                     )
                 }
@@ -151,32 +166,41 @@ object AiLegalJudge {
             }
         }
 
-        // Local appeal review logic
         val words = justification.trim().split("\\s+".toRegex()).size
         val hasLegalTerms = justification.contains("maddə", ignoreCase = true) ||
                 justification.contains("məcəllə", ignoreCase = true) ||
                 justification.contains("hüquq", ignoreCase = true) ||
-                justification.contains("qanun", ignoreCase = true) ||
-                justification.contains("istinad", ignoreCase = true) ||
-                justification.contains("tövsif", ignoreCase = true)
+                justification.contains("qanun", ignoreCase = true)
 
-        val isSuccess = words >= 15 && hasLegalTerms
-        val reasoning = if (isSuccess) {
-            "Müstəqil Hakimlər Kollegiyası şikayətinizi və təqdim etdiyiniz $wager xallıq mərci nəzərdən keçirdi: Göstərilən hüquqi arqumentlər və qanunvericilik normalarına istinadlar əsaslı hesab edildi. Apellyasiya təmin olundu! Qoyulan mərc tam geri qaytarıldı və əlavə +${(wager * 0.5).toInt()} bonus xalı təqdim edildi."
-        } else {
-            "Müstəqil Hakimlər Kollegiyası şikayəti qeyri-kafi hesab etdi: Təqdim olunan əsaslandırmada AR qanunvericiliyinin konkret normalarına yetərli hüquqi dəlillər gətirilməmişdir. Qərar qüvvədə saxlanıldı və riskə qoyulan $wager xal silindi."
-        }
-
+        val isSuccess = words >= 12 && hasLegalTerms
         AppealResult(
             isSuccess = isSuccess,
-            reasoning = reasoning,
+            reasoning = if (isSuccess) {
+                "Apellyasiya Kollegiyası təqdim olunan $wager xallıq mərci və hüquqi əsaslandırmanı təmin etdi. Qoyulan mərc qaytarıldı və əlavə xal qazanıldı."
+            } else {
+                "Apellyasiya Kollegiyası şikayəti əsassız hesab etdi: yetərli qanunvericilik norması göstərilməyib. Qoyulan $wager xal silindi."
+            },
             scoreAdjustment = if (isSuccess) 10 else 0
+        )
+    }
+
+    private fun buildZeroResult(reason: String): EvaluationResult {
+        return EvaluationResult(
+            score = 0,
+            verdict = "Qeyri-kafi (0 Xal)",
+            accuracyScore = 0,
+            terminologyScore = 0,
+            reasoningScore = 0,
+            fluencyScore = 0,
+            feedback = reason,
+            recommendations = "Mənasız, boş və ya mövzuya tamamilə aidiyyətsiz cavab verildiyi üçün 10 dəqiqəlik cəza məhdudiyyəti tətbiq olunmuşdur.",
+            isZeroPenalty = true
         )
     }
 
     private fun evaluateLocally(title: String, text: String, isCase: Boolean): EvaluationResult {
         val trimmed = text.trim()
-        val wordCount = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+        val words = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
 
         val legalKeywords = listOf(
             "maddə", "məcəllə", "qanun", "konstitusiya", "əqd", "öhdəlik", "zərər",
@@ -192,54 +216,62 @@ object AiLegalJudge {
             }
         }
 
-        // Dynamic points calculation
+        // Strict 0-point detection: if no legal keywords and fewer than 10 words, or nonsense text
+        if (matchedKeywords == 0 && words.size < 12) {
+            return buildZeroResult("Təqdim edilən mətndə heç bir hüquqi termin və ya qanunvericilik anlayışı aşkar edilmədi. Cavab qeyri-kafi və aidiyyətsizdir.")
+        }
+
         val accuracy = when {
             matchedKeywords >= 6 -> 32
-            matchedKeywords >= 4 -> 27
-            matchedKeywords >= 2 -> 21
-            else -> 15
+            matchedKeywords >= 4 -> 26
+            matchedKeywords >= 2 -> 20
+            matchedKeywords >= 1 -> 14
+            else -> 6
         }
 
         val terminology = when {
             matchedKeywords >= 5 -> 23
-            matchedKeywords >= 3 -> 19
-            matchedKeywords >= 1 -> 14
-            else -> 9
+            matchedKeywords >= 3 -> 18
+            matchedKeywords >= 1 -> 13
+            else -> 5
         }
 
         val reasoning = when {
-            wordCount >= 70 -> 23
-            wordCount >= 40 -> 19
-            wordCount >= 20 -> 15
-            else -> 10
-        }
-
-        val fluency = when {
-            wordCount >= 50 -> 14
-            wordCount >= 25 -> 12
-            wordCount >= 10 -> 9
+            words.size >= 60 -> 23
+            words.size >= 35 -> 18
+            words.size >= 15 -> 13
             else -> 6
         }
 
-        val totalScore = (accuracy + terminology + reasoning + fluency).coerceIn(20, 96)
+        val fluency = when {
+            words.size >= 40 -> 14
+            words.size >= 20 -> 11
+            words.size >= 10 -> 8
+            else -> 4
+        }
+
+        val totalScore = (accuracy + terminology + reasoning + fluency).coerceIn(0, 96)
+        if (totalScore <= 20 && matchedKeywords == 0) {
+            return buildZeroResult("Cavab hüquqi baxımdan əsassızdır və mövzuya uyğun deyil.")
+        }
 
         val verdict = when {
             totalScore >= 85 -> "Müvəffəqiyyətli (Yüksək Dərəcə)"
             totalScore >= 70 -> "Müvəffəqiyyətli (Yaxşı)"
-            totalScore >= 60 -> "Kafi (Keçid Balı)"
-            else -> "Qeyri-kafi (Təkrar Hazırlıq Tələb Olunur)"
+            totalScore >= 55 -> "Kafi (Keçid Balı)"
+            else -> "Qeyri-kafi"
         }
 
         val feedback = when {
             totalScore >= 80 -> "Cavabınız AR qanunvericiliyinə yüksək uyğunluq nümayiş etdirir. Hüquqi kateqoriyalar, anlayışlar və tənzimləmə mexanizmləri dəqiq ifadə olunub."
-            totalScore >= 65 -> "Mövzunun ümumi mahiyyəti düzgün qavranılıb, lakin konkret qanunvericilik normalarına və maddələrə daha aydın istinadlar edilməsi tövsiyə olunur."
-            else -> "Cavabda hüquqi terminologiya və AR qanunvericiliyinin imperativ normalarına əsaslandırma zəifdir. Mövzunun Məcəllələr üzrə şərhlərini yenidən nəzərdən keçirin."
+            totalScore >= 60 -> "Mövzunun ümumi mahiyyəti düzgün qavranılıb, lakin konkret qanunvericilik normalarına və maddələrə daha aydın istinadlar edilməsi tövsiyə olunur."
+            else -> "Cavabda hüquqi terminologiya və AR qanunvericiliyinin normalarına əsaslandırma zəifdir. Mövzunu yenidən nəzərdən keçirin."
         }
 
         val recommendations = if (isCase) {
-            "Məhkəmə təcrübəsində analoji kazuslara baxılma qaydasını, xüsusilə Ali Məhkəmənin Plenum qərarlarındakı izahları və prosessual müddətləri nəzərə alın."
+            "Məhkəmə təcrübəsində analoji kazuslara baxılma qaydasını, xüsusilə Ali Məhkəmənin Plenum qərarlarındakı izahları nəzərə alın."
         } else {
-            "AR Mülki və Cinayət Məcəllələrinin ümumi və xüsusi hissələrindəki əsas prinsipləri, habelə konstitusion təminatları cavabınızda daha qabarıq göstərin."
+            "AR Mülki və Cinayət Məcəllələrinin ümumi və xüsusi hissələrindəki əsas normaları cavabınızda daha qabarıq göstərin."
         }
 
         return EvaluationResult(
@@ -250,7 +282,8 @@ object AiLegalJudge {
             reasoningScore = reasoning,
             fluencyScore = fluency,
             feedback = feedback,
-            recommendations = recommendations
+            recommendations = recommendations,
+            isZeroPenalty = totalScore == 0
         )
     }
 
@@ -259,15 +292,18 @@ object AiLegalJudge {
         return try {
             val jsonPart = raw.substringAfter("{").substringBeforeLast("}")
             val json = JSONObject("{$jsonPart}")
+            val score = json.optInt("score", 0)
+            val isPenalty = json.optBoolean("isZeroPenalty", score == 0)
             EvaluationResult(
-                score = json.optInt("score", 75),
-                verdict = json.optString("verdict", "Müvəffəqiyyətli"),
-                accuracyScore = json.optInt("accuracyScore", 26),
-                terminologyScore = json.optInt("terminologyScore", 20),
-                reasoningScore = json.optInt("reasoningScore", 18),
-                fluencyScore = json.optInt("fluencyScore", 11),
-                feedback = json.optString("feedback", "Ətraflı hüquqi izah təqdim edildi."),
-                recommendations = json.optString("recommendations", "Qanunvericilik maddələrini mütəmadi təkrarlayın.")
+                score = score,
+                verdict = json.optString("verdict", if (score == 0) "Qeyri-kafi (0 Xal)" else "Müvəffəqiyyətli"),
+                accuracyScore = json.optInt("accuracyScore", 0),
+                terminologyScore = json.optInt("terminologyScore", 0),
+                reasoningScore = json.optInt("reasoningScore", 0),
+                fluencyScore = json.optInt("fluencyScore", 0),
+                feedback = json.optString("feedback", if (score == 0) "Cavab mövzuya uyğun deyil." else "Hüquqi izah təqdim edildi."),
+                recommendations = json.optString("recommendations", "Qanunvericilik maddələrini mütəmadi təkrarlayın."),
+                isZeroPenalty = isPenalty || score == 0
             )
         } catch (e: Exception) {
             null

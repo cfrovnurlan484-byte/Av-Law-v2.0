@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with real points, streak, achievements, and penalty timeout",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nickname": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "points": { "type": "integer" },
+        "streak": { "type": "integer" },
+        "achievements": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "timeoutUntilMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nickname", "role", "points", "streak"]
+    },
+    "Nickname": {
+      "title": "Nickname",
+      "description": "Unique nickname lookup mapping to prevent duplicate usernames",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "nickname": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "nickname"]
+    },
+    "CommunityPost": {
+      "title": "CommunityPost",
+      "description": "Real community post or shared legal analysis by users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorNickname": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "score": { "type": "integer" },
+        "likesCount": { "type": "integer" },
+        "likedUserIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "commentsCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "authorId", "authorNickname", "title", "content", "likesCount", "commentsCount"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Real user comment on a community post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "postId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorNickname": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "postId", "authorId", "authorNickname", "text"]
+    },
+    "LegalMaterial": {
+      "title": "LegalMaterial",
+      "description": "Legal statute, code, or article managed by Admins",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "articleNumber": { "type": "string" },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "fullText": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "category", "articleNumber", "title", "summary", "fullText"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profile documents indexed by Firebase Auth UID"
+    },
+    "/nicknames/{nicknameLower}": {
+      "schema": "Nickname",
+      "description": "Registry of lowercase unique nicknames mapped to user IDs"
+    },
+    "/community_posts/{postId}": {
+      "schema": "CommunityPost",
+      "description": "Public community feed of shared legal results and articles"
+    },
+    "/community_posts/{postId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments attached to a specific community post"
+    },
+    "/legal_materials/{materialId}": {
+      "schema": "LegalMaterial",
+      "description": "Legal codes and materials database manageable by admins"
+    }
+  }
+}

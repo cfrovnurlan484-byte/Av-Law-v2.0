@@ -30,7 +30,30 @@ class ExampleRobolectricTest {
     assertTrue(sources.any { it.codeCategory == "AR Konstitusiyası" })
 
     val profile = LegalDatabaseSeeder.getInitialProfile()
-    assertEquals("Əli Məmmədov", profile.fullName)
-    assertTrue(profile.totalPoints > 0)
+    assertEquals("Hüquqşünas", profile.fullName)
+    assertEquals(0, profile.totalPoints)
+    assertEquals(0, profile.theoryChecksCompleted)
+  }
+
+  @Test
+  fun `verify CaseStudy Room entity fields and initial case studies`() {
+    val caseStudy = com.example.data.local.model.CaseStudy(
+      id = 1L,
+      title = "Mülki Hüquq Kazusu",
+      category = "Mülki Hüquq",
+      description = "Mənzil alqı-satqı mübahisəsi və etibarsızlıq",
+      status = "ACTIVE"
+    )
+    assertEquals("Mülki Hüquq Kazusu", caseStudy.title)
+    assertEquals("Mülki Hüquq", caseStudy.category)
+    assertEquals("Mənzil alqı-satqı mübahisəsi və etibarsızlıq", caseStudy.description)
+    assertEquals("ACTIVE", caseStudy.status)
+
+    val seededCases = LegalDatabaseSeeder.getInitialCaseStudies()
+    assertTrue(seededCases.isNotEmpty())
+    assertTrue(seededCases.all { it.title.isNotBlank() })
+    assertTrue(seededCases.all { it.category.isNotBlank() })
+    assertTrue(seededCases.all { it.description.isNotBlank() })
+    assertTrue(seededCases.all { it.status.isNotBlank() })
   }
 }

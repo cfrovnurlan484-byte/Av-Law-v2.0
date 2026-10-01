@@ -6,10 +6,12 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.local.dao.ArticleDao
+import com.example.data.local.dao.CaseStudyDao
 import com.example.data.local.dao.ExamResultDao
 import com.example.data.local.dao.LegalSourceDao
 import com.example.data.local.dao.UserDao
 import com.example.data.local.model.ArticleEntity
+import com.example.data.local.model.CaseStudy
 import com.example.data.local.model.ExamResultEntity
 import com.example.data.local.model.LegalSourceEntity
 import com.example.data.local.model.UserProfile
@@ -22,9 +24,10 @@ import kotlinx.coroutines.launch
         UserProfile::class,
         ExamResultEntity::class,
         ArticleEntity::class,
-        LegalSourceEntity::class
+        LegalSourceEntity::class,
+        CaseStudy::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun examResultDao(): ExamResultDao
     abstract fun articleDao(): ArticleDao
     abstract fun legalSourceDao(): LegalSourceDao
+    abstract fun caseStudyDao(): CaseStudyDao
 
     companion object {
         @Volatile
@@ -44,6 +48,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "azhuquq_database"
                 )
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .addCallback(DatabaseCallback(scope))
                     .build()
                 INSTANCE = instance
@@ -72,6 +77,7 @@ abstract class AppDatabase : RoomDatabase() {
                     database.articleDao().insert(it)
                 }
                 database.legalSourceDao().insertAll(LegalDatabaseSeeder.getInitialLegalSources())
+                database.caseStudyDao().insertAll(LegalDatabaseSeeder.getInitialCaseStudies())
             }
         }
     }

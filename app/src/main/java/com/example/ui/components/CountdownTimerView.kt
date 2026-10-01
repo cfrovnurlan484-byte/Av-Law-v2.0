@@ -62,21 +62,29 @@ import java.util.Locale
 fun CountdownTimerView(
     isRunning: Boolean,
     initialMinutes: Int,
+    persistedSecondsRemaining: Int? = null,
+    persistedTotalSeconds: Int? = null,
     onStartTimer: (minutes: Int) -> Unit,
+    onSecondsTick: ((seconds: Int) -> Unit)? = null,
     onTimeExpired: () -> Unit,
     onReadyNow: () -> Unit,
     onOpenLibrary: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedMinutes by remember { mutableIntStateOf(initialMinutes.coerceIn(10, 60)) }
-    var secondsRemaining by remember { mutableIntStateOf(selectedMinutes * 60) }
-    var totalSeconds by remember { mutableIntStateOf(selectedMinutes * 60) }
+    var selectedMinutes by remember(initialMinutes) { mutableIntStateOf(initialMinutes.coerceIn(10, 60)) }
+    var secondsRemaining by remember(persistedSecondsRemaining, selectedMinutes) {
+        mutableIntStateOf(persistedSecondsRemaining ?: (selectedMinutes * 60))
+    }
+    var totalSeconds by remember(persistedTotalSeconds, selectedMinutes) {
+        mutableIntStateOf(persistedTotalSeconds ?: (selectedMinutes * 60))
+    }
 
     LaunchedEffect(isRunning, totalSeconds) {
         if (isRunning) {
             while (secondsRemaining > 0) {
                 delay(1000L)
                 secondsRemaining--
+                onSecondsTick?.invoke(secondsRemaining)
             }
             if (secondsRemaining <= 0) {
                 onTimeExpired()
@@ -143,6 +151,7 @@ fun CountdownTimerView(
                         selectedMinutes = it.toInt()
                         secondsRemaining = selectedMinutes * 60
                         totalSeconds = selectedMinutes * 60
+                        onSecondsTick?.invoke(secondsRemaining)
                     },
                     valueRange = 10f..60f,
                     steps = 9, // increments of 5 minutes: 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
@@ -166,6 +175,7 @@ fun CountdownTimerView(
                                 selectedMinutes = mins
                                 secondsRemaining = mins * 60
                                 totalSeconds = mins * 60
+                                onSecondsTick?.invoke(secondsRemaining)
                             },
                             label = { Text("${mins}d") },
                             colors = FilterChipDefaults.filterChipColors(

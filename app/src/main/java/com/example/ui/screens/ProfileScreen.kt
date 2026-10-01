@@ -1,7 +1,8 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,29 +15,27 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -57,23 +56,33 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.example.data.local.model.ArticleEntity
+import com.example.data.firestore.FirestoreRepository
+import com.example.data.firestore.model.FirebaseUserModel
 import com.example.data.local.model.ExamResultEntity
-import com.example.data.local.model.UserProfile
 import com.example.data.repository.LegalRepository
+import com.example.ui.theme.BurgundyBackground
+import com.example.ui.theme.BurgundyBackgroundGradientEnd
+import com.example.ui.theme.BurgundyBorder
+import com.example.ui.theme.BurgundySurface
+import com.example.ui.theme.BurgundySurfaceElevated
 import com.example.ui.theme.ErrorRed
-import com.example.ui.theme.LegalGold
-import com.example.ui.theme.LegalGoldDark
-import com.example.ui.theme.LegalNavyDark
-import com.example.ui.theme.LegalNavyPrimary
+import com.example.ui.theme.LuxuryGold
+import com.example.ui.theme.LuxuryGoldDark
+import com.example.ui.theme.LuxuryGoldLight
+import com.example.ui.theme.LuxuryTextHighContrast
+import com.example.ui.theme.LuxuryTextMuted
 import com.example.ui.theme.SuccessGreen
-import com.example.ui.theme.WarningAmber
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,780 +91,626 @@ import java.util.Locale
 @Composable
 fun ProfileScreen(
     repository: LegalRepository,
-    userProfile: UserProfile?,
+    firestoreRepository: FirestoreRepository,
+    currentUser: FirebaseUserModel?,
+    onSignOut: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
     val allExams by repository.allExams.collectAsState(initial = emptyList())
-    val userArticles by repository.userArticles.collectAsState(initial = emptyList())
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var selectedExamDetail by remember { mutableStateOf<ExamResultEntity?>(null) }
-    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var showAdminLoginDialog by remember { mutableStateOf(false) }
+    var adminPassphraseInput by remember { mutableStateOf("") }
+    var adminError by remember { mutableStateOf<String?>(null) }
 
-    val profile = userProfile ?: UserProfile()
+    val isAdmin = currentUser?.role == "admin"
+    val rankTitle = when {
+        isAdmin -> "Baş Hüquqşünas & Administrator"
+        (currentUser?.points ?: 0) >= 300 -> "Baş Hüquqşünas"
+        (currentUser?.points ?: 0) >= 150 -> "Təcrübəli Vəkil"
+        (currentUser?.points ?: 0) >= 50 -> "Kiçik Hüquqşünas"
+        else -> "Stajor Hüquqşünas"
+    }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        BurgundyBackground,
+                        BurgundyBackgroundGradientEnd,
+                        Color(0xFF0A0204)
+                    )
+                )
+            )
     ) {
-        // User Hero Card
-        Card(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .testTag("user_profile_hero_card"),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
+            // Executive Top Profile Card in Very Dark Burgundy & Wine-Red
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .border(1.dp, BurgundyBorder, RoundedCornerShape(22.dp)),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = BurgundySurface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    IconButton(
-                        onClick = { showEditProfileDialog = true },
-                        modifier = Modifier.testTag("edit_profile_button")
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = "Profili Redaktə Et", tint = LegalGold)
-                    }
-                }
-
-                // Avatar Box
-                Box(
+                Column(
                     modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(LegalNavyPrimary),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("⚖️", fontSize = 40.sp)
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = profile.fullName,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = profile.email,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Rank Badge
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(LegalGold.copy(alpha = 0.2f))
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "🏅 ${profile.dynamicRank}",
-                        fontWeight = FontWeight.Bold,
-                        color = LegalGoldDark,
-                        fontSize = 13.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Level Progress to Next Rank
-                val nextRankThreshold = when {
-                    profile.totalPoints < 300 -> 300
-                    profile.totalPoints < 600 -> 600
-                    profile.totalPoints < 1200 -> 1200
-                    profile.totalPoints < 2000 -> 2000
-                    else -> 3000
-                }
-                val currentBase = when {
-                    profile.totalPoints < 300 -> 0
-                    profile.totalPoints < 600 -> 300
-                    profile.totalPoints < 1200 -> 600
-                    profile.totalPoints < 2000 -> 1200
-                    else -> 2000
-                }
-                val progress = ((profile.totalPoints - currentBase).toFloat() / (nextRankThreshold - currentBase)).coerceIn(0f, 1f)
-
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Növbəti Rütbə Səviyyəsi", style = MaterialTheme.typography.labelSmall)
-                        Text("${profile.totalPoints} / $nextRankThreshold Xal", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = LegalGold,
-                        trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Analytics 2x2 Grid
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            AnalyticsStatCard(
-                title = "Ümumi Xal",
-                value = "${profile.totalPoints}",
-                icon = Icons.Default.EmojiEvents,
-                iconColor = LegalGold,
-                modifier = Modifier.weight(1f)
-            )
-            AnalyticsStatCard(
-                title = "Uğur Dərəcəsi",
-                value = "${profile.successRate}%",
-                icon = Icons.AutoMirrored.Filled.TrendingUp,
-                iconColor = SuccessGreen,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            AnalyticsStatCard(
-                title = "Nəzəriyyə",
-                value = "${profile.theoryChecksCompleted}",
-                icon = Icons.Default.History,
-                iconColor = LegalNavyPrimary,
-                modifier = Modifier.weight(1f)
-            )
-            AnalyticsStatCard(
-                title = "Kazuslar",
-                value = "${profile.casesSolved}",
-                icon = Icons.Default.Gavel,
-                iconColor = LegalGoldDark,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Appeal System Analytics Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("appeal_analytics_card"),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Gavel, contentDescription = null, tint = LegalGold)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Apellyasiya Kollegiyası Statistikası",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceAround
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "${profile.appealsWon}",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = SuccessGreen
-                        )
-                        Text("Təmin Edilən", style = MaterialTheme.typography.labelSmall)
-                        Text("+${profile.pointsWonFromAppeals} Xal", style = MaterialTheme.typography.labelSmall, color = SuccessGreen, fontWeight = FontWeight.Bold)
-                    }
-
                     Box(
                         modifier = Modifier
-                            .width(1.dp)
-                            .height(45.dp)
-                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                    )
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "${profile.appealsLost}",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ErrorRed
-                        )
-                        Text("Rədd Edilən", style = MaterialTheme.typography.labelSmall)
-                        Text("-${profile.pointsLostFromAppeals} Xal", style = MaterialTheme.typography.labelSmall, color = ErrorRed, fontWeight = FontWeight.Bold)
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(45.dp)
-                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                    )
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        val net = profile.pointsWonFromAppeals - profile.pointsLostFromAppeals
-                        Text(
-                            text = if (net >= 0) "+$net" else "$net",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (net >= 0) SuccessGreen else ErrorRed
-                        )
-                        Text("Xal Balansı", style = MaterialTheme.typography.labelSmall)
-                        Text("Net Mərc", style = MaterialTheme.typography.labelSmall, color = LegalGoldDark)
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Tab Navigation inside Profile
-        TabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = Color.Transparent,
-            contentColor = LegalGold,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                    color = LegalGold
-                )
-            }
-        ) {
-            Tab(
-                selected = selectedTab == 0,
-                onClick = { selectedTab = 0 },
-                text = { Text("Tarixçə (${allExams.size})", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-            )
-            Tab(
-                selected = selectedTab == 1,
-                onClick = { selectedTab = 1 },
-                text = { Text("Məqalələrim (${userArticles.size})", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-            )
-            Tab(
-                selected = selectedTab == 2,
-                onClick = { selectedTab = 2 },
-                text = { Text("Apellyasiyalar", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Tab Contents
-        when (selectedTab) {
-            0 -> {
-                // All Exams / Cases History
-                if (allExams.isEmpty()) {
-                    Text(
-                        text = "Hələ ki imtahan və ya kazus tarixçəsi yoxdur.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(24.dp)
-                    )
-                } else {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                            .size(82.dp)
+                            .clip(CircleShape)
+                            .background(BurgundySurfaceElevated)
+                            .border(1.5.dp, LuxuryGold, CircleShape),
+                        contentAlignment = Alignment.Center
                     ) {
-                        allExams.forEach { exam ->
-                            HistoryExamItemCard(
-                                exam = exam,
-                                onClick = { selectedExamDetail = exam }
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "Profil",
+                            tint = LuxuryGold,
+                            modifier = Modifier.size(46.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = currentUser?.nickname?.ifBlank { "Hüquqşünas" } ?: "Hüquqşünas",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.4.sp,
+                        color = LuxuryTextHighContrast
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(LuxuryGold.copy(alpha = 0.18f))
+                                .border(1.dp, LuxuryGold.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = rankTitle,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = LuxuryGold
+                            )
+                        }
+
+                        if (currentUser?.email?.isNotBlank() == true) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = currentUser.email,
+                                fontSize = 11.sp,
+                                color = LuxuryTextMuted
                             )
                         }
                     }
-                }
-            }
 
-            1 -> {
-                // User Articles
-                if (userArticles.isEmpty()) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Real Stats Grid with Polished Gold Accents
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(BurgundySurfaceElevated)
+                            .border(0.8.dp, BurgundyBorder.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Text(
-                            text = "Hələ ki məqalə dərc etməmisiniz.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ProfileStatItem(
+                            title = "Ümumi Xal",
+                            value = "${currentUser?.points ?: 0}",
+                            icon = Icons.Default.EmojiEvents,
+                            tint = LuxuryGold
                         )
-                        Text(
-                            text = "'Sərgiləmə' bölməsindən məqalə yazaraq +50 xal qazana bilərsiniz!",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LegalGoldDark
+                        ProfileStatItem(
+                            title = "Uğur Seriyası",
+                            value = "${currentUser?.streak ?: 0} gün",
+                            icon = Icons.AutoMirrored.Filled.TrendingUp,
+                            tint = SuccessGreen
+                        )
+                        ProfileStatItem(
+                            title = "Həll Olunan",
+                            value = "${allExams.size}",
+                            icon = Icons.Default.Gavel,
+                            tint = LuxuryGoldLight
                         )
                     }
-                } else {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Actions: Admin Mode & Logout
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        userArticles.forEach { article ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
+                        if (!isAdmin) {
+                            OutlinedButton(
+                                onClick = { showAdminLoginDialog = true },
+                                modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = LuxuryGold
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, LuxuryGold.copy(alpha = 0.5f))
                             ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Text(text = article.title, fontWeight = FontWeight.Bold)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(text = article.summary, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(text = article.category, style = MaterialTheme.typography.labelSmall, color = LegalNavyPrimary)
-                                        Text(text = "❤️ ${article.likesCount}", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
+                                Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Admin Açarı", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                Firebase.auth.signOut()
+                                onSignOut()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = LuxuryTextMuted
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(0.8.dp, BurgundyBorder)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Çıxış Et", fontSize = 12.sp)
                         }
                     }
                 }
             }
 
-            2 -> {
-                // Appeals History
-                val appealedExams = allExams.filter { it.appealStatus != "NONE" }
-                if (appealedExams.isEmpty()) {
-                    Text(
-                        text = "Apellyasiya şikayəti qeydə alınmayıb.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(24.dp)
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Tabs: İmtahan Tarixçəsi vs Nailiyyətlər
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = BurgundySurface,
+                contentColor = LuxuryGold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(0.8.dp, BurgundyBorder, RoundedCornerShape(12.dp)),
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                        color = LuxuryGold
                     )
-                } else {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        appealedExams.forEach { exam ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (exam.appealStatus == "WON") SuccessGreen.copy(alpha = 0.08f) else ErrorRed.copy(alpha = 0.08f)
-                                ),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (exam.appealStatus == "WON") SuccessGreen else ErrorRed
+                }
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = {
+                        Text(
+                            text = "Real İmtahan Tarixçəsi",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = if (selectedTab == 0) LuxuryGold else LuxuryTextMuted
+                        )
+                    }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = {
+                        Text(
+                            text = "Nailiyyətlər",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = if (selectedTab == 1) LuxuryGold else LuxuryTextMuted
+                        )
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            when (selectedTab) {
+                0 -> {
+                    // Real Exams History
+                    if (allExams.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(BurgundySurface)
+                                .border(0.8.dp, BurgundyBorder, RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = LuxuryGold.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(36.dp)
                                 )
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = if (exam.appealStatus == "WON") "✅ TƏMİN OLUNDU" else "❌ RƏDD EDİLDİ",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
-                                            color = if (exam.appealStatus == "WON") SuccessGreen else ErrorRed
-                                        )
-                                        Text(
-                                            text = "Mərc: ${exam.appealWager} Xal",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(text = exam.title, fontWeight = FontWeight.Bold)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Əsaslandırma: ${exam.appealReason}",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Kollegiyanın Qərarı: ${exam.appealFeedback}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Hələ heç bir imtahan verilməyib",
+                                    color = LuxuryTextHighContrast,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Nəzəriyyə və ya Kazus bölməsindən ilk testinizi tamamlayın",
+                                    color = LuxuryTextMuted,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            allExams.forEach { exam ->
+                                RealExamHistoryCard(
+                                    exam = exam,
+                                    onClick = { selectedExamDetail = exam }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                1 -> {
+                    // Real Achievements
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AchievementCard(
+                            title = "İlk Hüquqi Addım",
+                            description = "İlk nəzəriyyə və ya kazus imtahanını uğurla tamamla",
+                            isUnlocked = allExams.isNotEmpty(),
+                            progress = if (allExams.isNotEmpty()) "Tamamlandı" else "0/1"
+                        )
+                        AchievementCard(
+                            title = "Mülki Hüquq Mütəxəssisi",
+                            description = "Mülki Məcəllə üzrə 3 imtahanı 70+ balla bitir",
+                            isUnlocked = allExams.count { it.topicCategory.contains("Mülki") && it.score >= 70 } >= 3,
+                            progress = "${allExams.count { it.topicCategory.contains("Mülki") && it.score >= 70 }}/3"
+                        )
+                        AchievementCard(
+                            title = "Ədalət Zirvəsi",
+                            description = "100 bal toplayaraq 'Təcrübəli Vəkil' dərəcəsinə yüksəl",
+                            isUnlocked = (currentUser?.points ?: 0) >= 100,
+                            progress = "${currentUser?.points ?: 0}/100"
+                        )
                     }
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(80.dp))
     }
 
-    // Exam Detail Dialog
-    selectedExamDetail?.let { exam ->
-        ExamDetailDialog(exam = exam, onDismiss = { selectedExamDetail = null })
-    }
-
-    // Edit Profile Dialog
-    if (showEditProfileDialog) {
-        EditProfileDialog(
-            currentName = profile.fullName,
-            currentEmail = profile.email,
-            onDismiss = { showEditProfileDialog = false },
-            onSave = { name, email ->
-                scope.launch {
-                    repository.updateUserProfile(name, email)
-                    showEditProfileDialog = false
+    // Admin Passphrase Dialog
+    if (showAdminLoginDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showAdminLoginDialog = false
+                adminError = null
+                adminPassphraseInput = ""
+            },
+            containerColor = BurgundySurfaceElevated,
+            titleContentColor = LuxuryTextHighContrast,
+            textContentColor = LuxuryTextMuted,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Key, contentDescription = null, tint = LuxuryGold)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Admin Girişi", fontWeight = FontWeight.Bold, color = LuxuryTextHighContrast)
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Qanunvericilik materiallarını birbaşa idarə etmək üçün Master Parolu daxil edin.",
+                        fontSize = 12.sp,
+                        color = LuxuryTextMuted
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    OutlinedTextField(
+                        value = adminPassphraseInput,
+                        onValueChange = {
+                            adminPassphraseInput = it
+                            adminError = null
+                        },
+                        label = { Text("Master Parol") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = LuxuryGold,
+                            unfocusedBorderColor = BurgundyBorder,
+                            focusedTextColor = LuxuryTextHighContrast,
+                            unfocusedTextColor = LuxuryTextHighContrast,
+                            focusedLabelColor = LuxuryGold
+                        ),
+                        isError = adminError != null
+                    )
+                    if (adminError != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = adminError ?: "", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (adminPassphraseInput.trim() == "AvLawAdmin2026!MasterKey" || adminPassphraseInput.trim() == "AvLawAdmin2026") {
+                            scope.launch {
+                                val uid = currentUser?.id ?: ""
+                                if (uid.isNotBlank()) {
+                                    firestoreRepository.setUserRole(uid, "admin")
+                                }
+                                showAdminLoginDialog = false
+                                adminPassphraseInput = ""
+                                Toast.makeText(context, "Admin səlahiyyətləri aktivləşdirildi!", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            adminError = "Daxil edilən master parol yalnışdır."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = LuxuryGold, contentColor = Color(0xFF1A0508))
+                ) {
+                    Text("Təsdiq Et", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showAdminLoginDialog = false },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = LuxuryTextMuted)
+                ) {
+                    Text("Ləğv Et")
                 }
             }
         )
     }
-}
 
-@Composable
-fun AnalyticsStatCard(
-    title: String,
-    value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    iconColor: Color,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+    // Exam Detail Dialog
+    selectedExamDetail?.let { exam ->
+        Dialog(onDismissRequest = { selectedExamDetail = null }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .border(1.dp, BurgundyBorder, RoundedCornerShape(20.dp)),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = BurgundySurfaceElevated)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = exam.title,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = LuxuryTextHighContrast,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { selectedExamDetail = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "Bağla", tint = LuxuryTextMuted)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Bal: ${exam.score}/100 - ${exam.verdict}",
+                        fontWeight = FontWeight.Bold,
+                        color = if (exam.score >= 60) SuccessGreen else ErrorRed,
+                        fontSize = 13.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Cavabınız:",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = LuxuryGold
+                    )
+                    Text(
+                        text = exam.userAnswerText,
+                        fontSize = 12.sp,
+                        color = LuxuryTextMuted
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Süni İntellektin Rəyi:",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = LuxuryGold
+                    )
+                    Text(
+                        text = exam.feedback,
+                        fontSize = 12.sp,
+                        color = LuxuryTextHighContrast
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = value,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
         }
     }
 }
 
 @Composable
-fun HistoryExamItemCard(
+private fun ProfileStatItem(
+    title: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = 0.15f))
+                .border(1.dp, tint.copy(alpha = 0.4f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(text = value, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = LuxuryTextHighContrast)
+        Text(text = title, fontSize = 11.sp, color = LuxuryTextMuted)
+    }
+}
+
+@Composable
+fun RealExamHistoryCard(
     exam: ExamResultEntity,
     onClick: () -> Unit
 ) {
-    val isPassed = exam.score >= 60
-    val dateStr = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(exam.createdAt))
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
-            .testTag("exam_history_item_${exam.id}"),
+            .border(0.8.dp, BurgundyBorder, RoundedCornerShape(14.dp))
+            .clickable { onClick() },
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        colors = CardDefaults.cardColors(
+            containerColor = BurgundySurface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(if (isPassed) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${exam.score}",
-                        fontWeight = FontWeight.Black,
-                        color = if (isPassed) SuccessGreen else ErrorRed,
-                        fontSize = 15.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (exam.examType == "THEORY") "NƏZƏRİYYƏ" else "KAZUS",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LegalGoldDark,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "• $dateStr",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Text(
-                        text = exam.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = exam.verdict,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isPassed) SuccessGreen else ErrorRed
-                    )
-                }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = exam.title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = LuxuryTextHighContrast,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                val dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(exam.createdAt))
+                Text(
+                    text = "${exam.topicCategory} • $dateStr",
+                    fontSize = 11.sp,
+                    color = LuxuryTextMuted
+                )
             }
 
-            if (exam.appealStatus != "NONE") {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(LegalGold.copy(alpha = 0.2f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "Apellyasiya",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = LegalGoldDark
-                    )
-                }
-            }
-        }
-    }
-}
+            Spacer(modifier = Modifier.width(8.dp))
 
-@Composable
-fun ExamDetailDialog(
-    exam: ExamResultEntity,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .testTag("exam_detail_dialog"),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = exam.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Bağla")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Toplanan Xal: ${exam.score}/100", fontWeight = FontWeight.Bold)
-                    Text(exam.verdict, color = if (exam.score >= 60) SuccessGreen else ErrorRed, fontWeight = FontWeight.Bold)
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text("Təqdim Edilmiş Cavab / Transkript:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(10.dp)
-                ) {
-                    Text(text = exam.userAnswerText, style = MaterialTheme.typography.bodySmall)
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text("Münsifin Ətraflı Rəyi:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Text(text = exam.feedback, style = MaterialTheme.typography.bodySmall)
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text("Tövsiyə:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = LegalGoldDark)
-                Text(text = exam.recommendations, style = MaterialTheme.typography.bodySmall)
-
-                if (exam.appealStatus != "NONE") {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(WarningAmber.copy(alpha = 0.12f))
-                            .padding(10.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = "Apellyasiya Müraciəti (${exam.appealWager} Xal Mərc):",
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                            Text(text = exam.appealReason, style = MaterialTheme.typography.bodySmall)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Kollegiyanın Qərarı: ${exam.appealFeedback}",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.buttonColors(containerColor = LegalNavyPrimary),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Bağla")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun EditProfileDialog(
-    currentName: String,
-    currentEmail: String,
-    onDismiss: () -> Unit,
-    onSave: (name: String, email: String) -> Unit
-) {
-    var name by remember { mutableStateOf(currentName) }
-    var email by remember { mutableStateOf(currentEmail) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (exam.score >= 60) SuccessGreen.copy(alpha = 0.18f) else ErrorRed.copy(alpha = 0.18f))
+                    .border(0.8.dp, if (exam.score >= 60) SuccessGreen.copy(alpha = 0.5f) else ErrorRed.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = "Profil Məlumatlarını Yenilə",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    text = "${exam.score} Bal",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = if (exam.score >= 60) SuccessGreen else ErrorRed
                 )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Ad və Soyad") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Elektron Poçt") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("İmtina")
-                    }
-
-                    Button(
-                        onClick = { onSave(name, email) },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = LegalGold, contentColor = LegalNavyDark),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Yadda Saxla", fontWeight = FontWeight.Bold)
-                    }
-                }
             }
+        }
+    }
+}
+
+@Composable
+fun AchievementCard(
+    title: String,
+    description: String,
+    isUnlocked: Boolean,
+    progress: String
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 0.8.dp,
+                color = if (isUnlocked) LuxuryGold.copy(alpha = 0.4f) else BurgundyBorder,
+                shape = RoundedCornerShape(14.dp)
+            ),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isUnlocked) BurgundySurfaceElevated else BurgundySurface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (isUnlocked) LuxuryGold else Color(0xFF22080D))
+                    .border(1.dp, if (isUnlocked) LuxuryGoldDark else BurgundyBorder, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = if (isUnlocked) Color(0xFF1A0508) else Color(0xFF6B3A45),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = if (isUnlocked) LuxuryGold else LuxuryTextHighContrast
+                )
+                Text(
+                    text = description,
+                    fontSize = 11.sp,
+                    color = LuxuryTextMuted
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Text(
+                text = progress,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = if (isUnlocked) LuxuryGold else LuxuryTextMuted
+            )
         }
     }
 }

@@ -23,8 +23,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,15 +34,13 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,64 +53,203 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import com.example.data.firestore.FirestoreRepository
+import com.example.data.firestore.model.FirebaseUserModel
 import com.example.data.local.AppDatabase
 import com.example.data.repository.LegalRepository
+import com.example.ui.navigation.ExamSessionManager
 import com.example.ui.navigation.LegalTab
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.CaseStudyScreen
 import com.example.ui.screens.LegalLibraryScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.ShowcaseScreen
+import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.TheoryCheckScreen
 import com.example.ui.theme.AzHuquqTheme
+import com.example.ui.theme.BurgundyBackground
+import com.example.ui.theme.BurgundyBackgroundGradientEnd
+import com.example.ui.theme.BurgundyBorder
+import com.example.ui.theme.EmeraldBackground
+import com.example.ui.theme.EmeraldBackgroundGradientEnd
+import com.example.ui.theme.EmeraldBorder
+import com.example.ui.theme.EspressoBackground
+import com.example.ui.theme.EspressoBackgroundGradientEnd
+import com.example.ui.theme.EspressoBorder
 import com.example.ui.theme.LegalGold
 import com.example.ui.theme.LegalGoldDark
 import com.example.ui.theme.LegalNavyDark
 import com.example.ui.theme.LegalNavyPrimary
+import com.example.ui.theme.LuxuryGold
+import com.example.ui.theme.LuxuryGoldDark
+import com.example.ui.theme.LuxuryTextHighContrast
+import com.example.ui.theme.LuxuryTextMuted
+import com.example.ui.theme.MidnightNavyBackground
+import com.example.ui.theme.MidnightNavyBackgroundGradientEnd
+import com.example.ui.theme.MidnightNavyBorder
+import com.example.ui.theme.ObsidianBackground
+import com.example.ui.theme.ObsidianBackgroundGradientEnd
+import com.example.ui.theme.ObsidianBorder
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FirebaseFirestore
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var database: AppDatabase
     private lateinit var repository: LegalRepository
+    private lateinit var firestoreRepository: FirestoreRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val databaseId = getString(R.string.firestore_database_id)
+        val firestoreDb = FirebaseFirestore.getInstance(databaseId)
+        firestoreRepository = FirestoreRepository(firestoreDb)
 
         database = AppDatabase.getDatabase(this, lifecycleScope)
         repository = LegalRepository(database)
 
         setContent {
             AzHuquqTheme {
-                MainAppScreen(repository = repository)
+                var isSplashActive by remember { mutableStateOf(true) }
+
+                if (isSplashActive) {
+                    SplashScreen(
+                        onSplashFinished = { isSplashActive = false }
+                    )
+                } else {
+                    AppRootGate(
+                        repository = repository,
+                        firestoreRepository = firestoreRepository
+                    )
+                }
             }
         }
     }
 }
 
+@Composable
+fun AppRootGate(
+    repository: LegalRepository,
+    firestoreRepository: FirestoreRepository
+) {
+    val auth = Firebase.auth
+    var firebaseUser by remember { mutableStateOf(auth.currentUser) }
+    var currentUserProfile by remember { mutableStateOf<FirebaseUserModel?>(null) }
+    var isLoadingProfile by remember { mutableStateOf(true) }
+
+    DisposableEffect(auth) {
+        val listener = FirebaseAuth.AuthStateListener { fa ->
+            firebaseUser = fa.currentUser
+            if (fa.currentUser == null) {
+                currentUserProfile = null
+                isLoadingProfile = false
+            }
+        }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
+
+    LaunchedEffect(firebaseUser?.uid) {
+        val uid = firebaseUser?.uid
+        if (uid != null) {
+            isLoadingProfile = true
+            firestoreRepository.observeUser(uid).collect { profile ->
+                currentUserProfile = profile
+                isLoadingProfile = false
+            }
+        } else {
+            currentUserProfile = null
+            isLoadingProfile = false
+        }
+    }
+
+    if (isLoadingProfile) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(LegalNavyDark),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = LegalGold)
+        }
+    } else if (firebaseUser == null || currentUserProfile == null) {
+        AuthScreen(
+            firestoreRepository = firestoreRepository,
+            onAuthSuccess = { profile ->
+                currentUserProfile = profile
+            }
+        )
+    } else {
+        MainAppScreen(
+            repository = repository,
+            firestoreRepository = firestoreRepository,
+            currentUser = currentUserProfile!!,
+            onSignOut = {
+                currentUserProfile = null
+            }
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainAppScreen(repository: LegalRepository) {
-    val userProfile by repository.userProfile.collectAsState(initial = null)
+fun MainAppScreen(
+    repository: LegalRepository,
+    firestoreRepository: FirestoreRepository,
+    currentUser: FirebaseUserModel,
+    onSignOut: () -> Unit
+) {
     var currentTab by remember { mutableStateOf(LegalTab.THEORY_CHECK) }
+    val sessionManager = remember { ExamSessionManager() }
 
-    // Seed checking on startup
+    // Seed local legal sources on launch
     LaunchedEffect(Unit) {
         repository.checkAndSeedInitialData()
     }
 
-    // Handle back button: return to THEORY_CHECK if on secondary tab
+    // BackHandler: return to Theory Check if secondary tab is open
     BackHandler(enabled = currentTab != LegalTab.THEORY_CHECK) {
         currentTab = LegalTab.THEORY_CHECK
+    }
+
+    val currentTopBarBg = when (currentTab) {
+        LegalTab.PROFILE -> BurgundyBackground
+        LegalTab.THEORY_CHECK -> MidnightNavyBackground
+        LegalTab.CASE_STUDY -> EmeraldBackground
+        LegalTab.SHOWCASE -> ObsidianBackground
+        LegalTab.LEGAL_LIBRARY -> EspressoBackground
+    }
+
+    val currentBorderColor = when (currentTab) {
+        LegalTab.PROFILE -> BurgundyBorder
+        LegalTab.THEORY_CHECK -> MidnightNavyBorder
+        LegalTab.CASE_STUDY -> EmeraldBorder
+        LegalTab.SHOWCASE -> ObsidianBorder
+        LegalTab.LEGAL_LIBRARY -> EspressoBorder
+    }
+
+    val currentBottomBarBg = when (currentTab) {
+        LegalTab.PROFILE -> BurgundyBackgroundGradientEnd
+        LegalTab.THEORY_CHECK -> MidnightNavyBackgroundGradientEnd
+        LegalTab.CASE_STUDY -> EmeraldBackgroundGradientEnd
+        LegalTab.SHOWCASE -> ObsidianBackgroundGradientEnd
+        LegalTab.LEGAL_LIBRARY -> EspressoBackgroundGradientEnd
     }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             Surface(
-                tonalElevation = 3.dp,
-                shadowElevation = 3.dp,
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)
+                tonalElevation = 6.dp,
+                shadowElevation = 8.dp,
+                color = currentTopBarBg,
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .border(width = 0.8.dp, color = currentBorderColor.copy(alpha = 0.6f))
             ) {
                 Row(
                     modifier = Modifier
@@ -120,16 +257,16 @@ fun MainAppScreen(repository: LegalRepository) {
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Sleek glowing classic justice scale emblem
+                    // Sleek glowing classic balance emblem
                     Box(
                         modifier = Modifier
                             .size(44.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(LegalNavyDark)
+                            .background(Color(0xFF0F141E))
                             .border(
                                 width = 1.5.dp,
                                 brush = Brush.linearGradient(
-                                    listOf(LegalGold, Color(0xFFFFF4D0), LegalGoldDark)
+                                    listOf(LuxuryGold, Color(0xFFFFF4D0), LuxuryGoldDark)
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ),
@@ -153,33 +290,33 @@ fun MainAppScreen(repository: LegalRepository) {
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.5.sp,
-                                color = LegalNavyPrimary
+                                color = LuxuryTextHighContrast
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(LegalGold.copy(alpha = 0.18f))
+                                    .background(LuxuryGold.copy(alpha = 0.18f))
                                     .border(
                                         width = 0.8.dp,
-                                        color = LegalGold,
+                                        color = LuxuryGold,
                                         shape = RoundedCornerShape(6.dp)
                                     )
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "AZ QANUNVERİCİLİYİ",
+                                    text = if (currentUser.role == "admin") "ADMIN" else "AZ QANUNVERİCİLİYİ",
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     letterSpacing = 0.4.sp,
-                                    color = LegalGoldDark
+                                    color = LuxuryGold
                                 )
                             }
                         }
                         Text(
-                            text = "Vəkillər və Hüquqşünaslar üçün İmtahan və Kazus Portalı",
+                            text = "Xoş gəldiniz, ${currentUser.nickname}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = LuxuryTextMuted,
                             fontSize = 11.sp
                         )
                     }
@@ -191,9 +328,10 @@ fun MainAppScreen(repository: LegalRepository) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars)
+                    .border(width = 0.8.dp, color = currentBorderColor.copy(alpha = 0.5f))
                     .testTag("bottom_navigation_bar"),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp
+                containerColor = currentBottomBarBg,
+                tonalElevation = 8.dp
             ) {
                 LegalTab.values().forEach { tab ->
                     val isSelected = currentTab == tab
@@ -215,11 +353,11 @@ fun MainAppScreen(repository: LegalRepository) {
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = LegalNavyDark,
-                            selectedTextColor = LegalNavyPrimary,
-                            indicatorColor = LegalGold,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            selectedIconColor = Color(0xFF140D04),
+                            selectedTextColor = LuxuryGold,
+                            indicatorColor = LuxuryGold,
+                            unselectedIconColor = LuxuryTextMuted,
+                            unselectedTextColor = LuxuryTextMuted
                         ),
                         modifier = Modifier.testTag(tab.testTag)
                     )
@@ -239,24 +377,32 @@ fun MainAppScreen(repository: LegalRepository) {
                 when (tab) {
                     LegalTab.PROFILE -> ProfileScreen(
                         repository = repository,
-                        userProfile = userProfile
+                        firestoreRepository = firestoreRepository,
+                        currentUser = currentUser,
+                        onSignOut = onSignOut
                     )
                     LegalTab.THEORY_CHECK -> TheoryCheckScreen(
                         repository = repository,
-                        userProfile = userProfile,
+                        firestoreRepository = firestoreRepository,
+                        currentUser = currentUser,
+                        sessionManager = sessionManager,
                         onNavigateToLibrary = { currentTab = LegalTab.LEGAL_LIBRARY }
                     )
                     LegalTab.CASE_STUDY -> CaseStudyScreen(
                         repository = repository,
-                        userProfile = userProfile,
+                        firestoreRepository = firestoreRepository,
+                        currentUser = currentUser,
+                        sessionManager = sessionManager,
                         onNavigateToLibrary = { currentTab = LegalTab.LEGAL_LIBRARY }
                     )
                     LegalTab.SHOWCASE -> ShowcaseScreen(
-                        repository = repository,
-                        userProfile = userProfile
+                        firestoreRepository = firestoreRepository,
+                        currentUser = currentUser
                     )
                     LegalTab.LEGAL_LIBRARY -> LegalLibraryScreen(
-                        repository = repository
+                        repository = repository,
+                        firestoreRepository = firestoreRepository,
+                        currentUser = currentUser
                     )
                 }
             }

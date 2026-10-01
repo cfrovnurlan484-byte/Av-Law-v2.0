@@ -3,6 +3,7 @@ package com.example.data.repository
 import com.example.data.local.AppDatabase
 import com.example.data.local.LegalDatabaseSeeder
 import com.example.data.local.model.ArticleEntity
+import com.example.data.local.model.CaseStudy
 import com.example.data.local.model.ExamResultEntity
 import com.example.data.local.model.LegalSourceEntity
 import com.example.data.local.model.UserProfile
@@ -17,12 +18,39 @@ class LegalRepository(private val database: AppDatabase) {
     private val examResultDao = database.examResultDao()
     private val articleDao = database.articleDao()
     private val legalSourceDao = database.legalSourceDao()
+    private val caseStudyDao = database.caseStudyDao()
 
     val userProfile: Flow<UserProfile?> = userDao.getUser()
     val allExams: Flow<List<ExamResultEntity>> = examResultDao.getAllExams()
     val allArticles: Flow<List<ArticleEntity>> = articleDao.getAllArticles()
     val userArticles: Flow<List<ArticleEntity>> = articleDao.getUserArticles()
     val allLegalSources: Flow<List<LegalSourceEntity>> = legalSourceDao.getAllSources()
+    val allCaseStudies: Flow<List<CaseStudy>> = caseStudyDao.getAllCaseStudies()
+
+    fun getCaseStudyById(id: Long): Flow<CaseStudy?> = caseStudyDao.getCaseStudyById(id)
+    fun getCaseStudiesByCategory(category: String): Flow<List<CaseStudy>> = caseStudyDao.getCaseStudiesByCategory(category)
+    fun getCaseStudiesByStatus(status: String): Flow<List<CaseStudy>> = caseStudyDao.getCaseStudiesByStatus(status)
+    fun searchCaseStudies(query: String): Flow<List<CaseStudy>> = caseStudyDao.searchCaseStudies(query)
+
+    suspend fun saveCaseStudy(caseStudy: CaseStudy): Long = withContext(Dispatchers.IO) {
+        caseStudyDao.insert(caseStudy)
+    }
+
+    suspend fun updateCaseStudy(caseStudy: CaseStudy) = withContext(Dispatchers.IO) {
+        caseStudyDao.update(caseStudy)
+    }
+
+    suspend fun deleteCaseStudy(caseStudy: CaseStudy) = withContext(Dispatchers.IO) {
+        caseStudyDao.delete(caseStudy)
+    }
+
+    suspend fun deleteCaseStudyById(id: Long) = withContext(Dispatchers.IO) {
+        caseStudyDao.deleteById(id)
+    }
+
+    suspend fun updateCaseStudyStatus(id: Long, status: String) = withContext(Dispatchers.IO) {
+        caseStudyDao.updateStatus(id, status)
+    }
 
     suspend fun checkAndSeedInitialData() = withContext(Dispatchers.IO) {
         val currentUser = userDao.getUser().firstOrNull()
@@ -35,6 +63,7 @@ class LegalRepository(private val database: AppDatabase) {
                 articleDao.insert(it)
             }
             legalSourceDao.insertAll(LegalDatabaseSeeder.getInitialLegalSources())
+            caseStudyDao.insertAll(LegalDatabaseSeeder.getInitialCaseStudies())
         }
     }
 

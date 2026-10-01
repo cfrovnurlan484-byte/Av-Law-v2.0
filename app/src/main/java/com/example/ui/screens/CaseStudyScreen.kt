@@ -18,11 +18,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Gavel
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,8 +37,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -49,20 +52,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.ai.AiLegalJudge
-import com.example.data.ai.AppealResult
-import com.example.data.ai.EvaluationResult
+import com.example.data.firestore.FirestoreRepository
+import com.example.data.firestore.model.FirebaseUserModel
 import com.example.data.local.model.ExamResultEntity
-import com.example.data.local.model.UserProfile
 import com.example.data.repository.LegalRepository
 import com.example.ui.components.AppealDialog
 import com.example.ui.components.CountdownTimerView
 import com.example.ui.components.EvaluationResultCard
 import com.example.ui.components.VerticalReelPicker
 import com.example.ui.components.WheelItem
+import com.example.ui.navigation.ExamSessionManager
 import com.example.ui.theme.LegalGold
 import com.example.ui.theme.LegalGoldDark
 import com.example.ui.theme.LegalNavyDark
 import com.example.ui.theme.LegalNavyPrimary
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class PracticalCase(
@@ -90,7 +94,7 @@ val PracticalCasesList = listOf(
     ),
     PracticalCase(
         id = "case_3",
-        wheelItem = WheelItem("c3", "Ştat İxtisarı Mübahisəsi", "Hamilə işçinin hüququ və üstünlük", "Əmək Hüququ", "📑"),
+        wheelItem = WheelItem("c3", "Ştat İxtisarı Mübahisəsi", "Hamilə işçinin hüququ və üstünlük", "Əmək Hüququ", "💼"),
         parties = "İddiaçı: N. Quliyeva, Cavabdeh: 'AzərTech' QSC",
         facts = "'AzərTech' QSC-də ştat ixtisarı aparılarkən 2 yaşlı uşağı olan və eyni zamanda 4 aylıq hamilə olan mütəxəssis N. Quliyevanın əmək müqaviləsinə AR Əmək Məcəlləsinin 70-ci maddəsinin 'b' bəndi ilə xitam verilib. İşəgötürən bildirir ki, həmin ştat tam ləğv edildiyi üçün işçini başqa işə keçirmək mümkün olmayıb.",
         legalIssue = "AR Əmək Məcəlləsinin 78 və 79-cu maddələri baxımından işəgötürənin əmri qanunidirmi? İddia ərizəsinin əsaslandırılmış hüquqi hissəsini yazın."
@@ -98,23 +102,9 @@ val PracticalCasesList = listOf(
     PracticalCase(
         id = "case_4",
         wheelItem = WheelItem("c4", "Yol Qəzası və Mənəvi Zərər", "Yüksək təhlükə mənbəyi və kompensasiya", "Mülki Hüquq", "🚗"),
-        parties = "İddiaçı: S. Əliyev, Cavabdeh: K. Mahmudov",
-        facts = "K. Mahmudov idarə etdiyi avtomobillə piyada keçidində S. Əliyevi vurub. İddiaçı 2 ay xəstəxanada müalicə alıb və əmək qabiliyyətini qismən itirib. Maddi zərər sığorta şirkəti tərəfindən ödənilib, lakin S. Əliyev keçirdiyi fiziki və mənəvi iztirablara görə sürücüdən əlavə 25.000 AZN mənəvi zərər tələb edir.",
-        legalIssue = "Mülki Məcəllənin 1115-ci maddəsi və Ali Məhkəmənin Plenum qərarı işığında mənəvi zərərin ağlabatan məbləğini və təyini meyarlarını əsaslandırın."
-    ),
-    PracticalCase(
-        id = "case_5",
-        wheelItem = WheelItem("c5", "Vərəsəlikdə Məcburi Pay", "Vəsiyyətnamənin hüquqi qüvvəsi", "Mülki Hüquq", "📜"),
-        parties = "İddiaçı: F. Vəliyev (I qrup əlil), Cavabdeh: G. Vəliyeva",
-        facts = "Miras qoyan şəxs bütün əmlakını vəsiyyətnamə ilə ikinci həyat yoldaşı G. Vəliyevaya vəsiyyət edib. Birinci nikahdan olan I qrup əlil oğlu F. Vəliyev isə vəsiyyətnamədən kənarda qalıb. O, məhkəməyə müraciət edərək mirasdan pay tələb edir.",
-        legalIssue = "AR Mülki Məcəlləsinin 1193-cü maddəsinə əsasən məcburi pay hüququ necə hesablanır və vəsiyyətnamə tam ləğv edilə bilərmi?"
-    ),
-    PracticalCase(
-        id = "case_6",
-        wheelItem = WheelItem("c6", "Protokolsuz İnzibati Cərimə", "İXM m. 52 və prosessual qanunilik", "İnzibati Xətalar", "🚦"),
-        parties = "Şikayətçi: E. Muradov, Cavabdeh orqan: İcra Hakimiyyəti",
-        facts = "Səlahiyyətli orqan tərəfindən vətəndaş E. Muradov barəsində inzibati xəta haqqında protokol tərtib edilmədən, birbaşa inzibati tənbeh tətbiq etmə haqqında qərar çıxarılaraq 500 AZN cərimə tətbiq olunub.",
-        legalIssue = "İnzibati Xətalar Məcəlləsinin 52-ci maddəsinə əsasən protokol tərtib edilməməsi qərarın ləğvi üçün əsasdırmı? Şikayət layihəsini hazırlayın."
+        parties = "İddiaçı: S. Vəliyev, Cavabdeh: 'Ekspress Logistika' MMC",
+        facts = "'Ekspress Logistika' MMC-nin sürücüsü idarə etdiyi yük maşını ilə nizamlanmayan piyada keçidində piyada S. Vəliyevi vurub. Piyada orta dərəcəli bədən xəsarəti alıb və 45 gün stasionar müalicə olunub. İddiaçı çəkilmiş 4.500 AZN müalicə xərcləri ilə yanaşı, fiziki və mənəvi iztirablara görə 15.000 AZN mənəvi zərər tələb edir.",
+        legalIssue = "AR MM 1111 və 1115-ci maddələri baxımından yüksək təhlükə mənbəyinin vurduğu zərərin ödənilməsi və mənəvi zərərin ağlabatan məbləğdə təyin edilməsi qaydalarını əsaslandırın."
     )
 )
 
@@ -127,31 +117,28 @@ enum class CaseStage {
 @Composable
 fun CaseStudyScreen(
     repository: LegalRepository,
-    userProfile: UserProfile?,
+    firestoreRepository: FirestoreRepository,
+    currentUser: FirebaseUserModel?,
+    sessionManager: ExamSessionManager,
     onNavigateToLibrary: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    var stage by remember { mutableStateOf(CaseStage.WHEEL) }
-    var selectedCase by remember { mutableStateOf<PracticalCase?>(null) }
-    var isTimerRunning by remember { mutableStateOf(false) }
+    var currentClockMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            currentClockMillis = System.currentTimeMillis()
+        }
+    }
 
-    // Solution inputs
-    var qualificationText by remember { mutableStateOf("") }
-    var legalArticlesText by remember { mutableStateOf("") }
-    var verdictProposalText by remember { mutableStateOf("") }
-
-    var isEvaluating by remember { mutableStateOf(false) }
-    var evaluationResult by remember { mutableStateOf<EvaluationResult?>(null) }
-    var lastSavedCaseId by remember { mutableStateOf<Long?>(null) }
-    var combinedSolution by remember { mutableStateOf("") }
-
-    // Appeal dialog state
-    var showAppealDialog by remember { mutableStateOf(false) }
-    var isProcessingAppeal by remember { mutableStateOf(false) }
-    var appealOutcome by remember { mutableStateOf<AppealResult?>(null) }
+    val timeoutUntil = currentUser?.timeoutUntilMillis ?: 0L
+    val isPenaltyActive = timeoutUntil > currentClockMillis
+    val remainingPenaltySeconds = if (isPenaltyActive) ((timeoutUntil - currentClockMillis) / 1000).coerceAtLeast(0) else 0
+    val penaltyMinutes = remainingPenaltySeconds / 60
+    val penaltySecs = remainingPenaltySeconds % 60
 
     Column(
         modifier = modifier
@@ -186,19 +173,103 @@ fun CaseStudyScreen(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = "${userProfile?.casesSolved ?: 8} Kazus Həll Olunub",
+                    text = "${currentUser?.points ?: 0} Xal",
                     fontWeight = FontWeight.Bold,
                     color = LegalGoldDark,
-                    fontSize = 12.sp
+                    fontSize = 13.sp
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        when (stage) {
+        // Timeout Penalty Warning Banner
+        if (isPenaltyActive) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Cəza",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "10 Dəqiqəlik Cəza Məhdudiyyəti Aktivdir!",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Əvvəlki cavabınız boş və ya tamamilə aidiyyətsiz olduğu üçün 0 bal almışsınız. Qalan gözləmə müddəti: ${penaltyMinutes} dəqiqə ${penaltySecs} saniyə.",
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // Active Case Study Session Banner
+        if (sessionManager.isCaseStudyActive()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = LegalNavyPrimary.copy(alpha = 0.12f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.HourglassBottom,
+                            contentDescription = null,
+                            tint = LegalGoldDark,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Aktiv Kazus Sessiyası Qorunur",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = LegalNavyDark
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onNavigateToLibrary,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Mənbələrə Bax", fontSize = 11.sp)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        when (sessionManager.caseStage) {
             CaseStage.WHEEL -> {
-                // Minimalist Vertical Text Carousel (Slot Reel Style)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(22.dp),
@@ -219,83 +290,76 @@ fun CaseStudyScreen(
                         Text(
                             text = "Məhkəmə təcrübəsi üzrə şaquli slot seçimi üçün 'Fırlat' düyməsini sıxın",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        val reelItems = PracticalCasesList.map { it.wheelItem }
                         VerticalReelPicker(
-                            items = PracticalCasesList.map { it.wheelItem },
-                            buttonText = "Fırlat",
-                            headerTitle = "Praktiki Kazus",
+                            items = reelItems,
+                            buttonText = if (isPenaltyActive) "Məhdudiyyət Aktivdir" else "Fırlat",
+                            headerTitle = "Məhkəmə Kazusları",
                             onItemSelected = { landed ->
-                                selectedCase = PracticalCasesList.find { it.wheelItem.id == landed.id }
+                                if (!isPenaltyActive) {
+                                    sessionManager.selectedCase = PracticalCasesList.find { it.wheelItem.id == landed.id }
+                                }
                             }
                         )
                     }
                 }
 
-                // Selected Case Presentation
-                AnimatedVisibility(visible = selectedCase != null) {
-                    selectedCase?.let { caseItem ->
+                AnimatedVisibility(visible = sessionManager.selectedCase != null) {
+                    sessionManager.selectedCase?.let { caseItem ->
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Spacer(modifier = Modifier.height(16.dp))
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("selected_case_card"),
-                                shape = RoundedCornerShape(16.dp),
+                                shape = RoundedCornerShape(18.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                ),
-                                border = androidx.compose.foundation.BorderStroke(1.5.dp, LegalGold)
+                                    containerColor = LegalGold.copy(alpha = 0.12f)
+                                )
                             ) {
-                                Column(modifier = Modifier.padding(18.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = caseItem.wheelItem.category,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = LegalGoldDark
-                                        )
-                                        Text(text = caseItem.wheelItem.iconEmoji, fontSize = 22.sp)
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                Column(modifier = Modifier.padding(16.dp)) {
                                     Text(
                                         text = caseItem.wheelItem.title,
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        color = LegalNavyPrimary
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = caseItem.parties,
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = LegalNavyPrimary,
+                                        color = LegalGoldDark,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = caseItem.facts,
-                                        style = MaterialTheme.typography.bodySmall
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Spacer(modifier = Modifier.height(14.dp))
                                     Button(
-                                        onClick = { stage = CaseStage.TIMER_PREP },
+                                        onClick = {
+                                            if (!isPenaltyActive) {
+                                                sessionManager.caseStage = CaseStage.TIMER_PREP
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("start_case_prep_button"),
+                                        enabled = !isPenaltyActive,
+                                        shape = RoundedCornerShape(12.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = LegalNavyPrimary,
                                             contentColor = Color.White
-                                        ),
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp)
-                                            .testTag("proceed_case_timer_button")
+                                        )
                                     ) {
-                                        Text("Kazusu Araşdır (10-60 dəq Taymer)", fontWeight = FontWeight.Bold)
+                                        Text("Kazusun Təhlilinə Başla")
                                     }
                                 }
                             }
@@ -305,50 +369,106 @@ fun CaseStudyScreen(
             }
 
             CaseStage.TIMER_PREP -> {
-                CountdownTimerView(
-                    isRunning = isTimerRunning,
-                    initialMinutes = 25,
-                    onStartTimer = { isTimerRunning = true },
-                    onTimeExpired = {
-                        isTimerRunning = false
-                        stage = CaseStage.SOLUTION_SUBMISSION
-                    },
-                    onReadyNow = {
-                        isTimerRunning = false
-                        stage = CaseStage.SOLUTION_SUBMISSION
-                    },
-                    onOpenLibrary = onNavigateToLibrary
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                selectedCase?.let { caseItem ->
+                sessionManager.selectedCase?.let { caseItem ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        shape = RoundedCornerShape(22.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
                             Text(
-                                text = "Kazusun Hüquqi Tələbi və Sual:",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = LegalGold
+                                text = "Kazusun Təhlili Taymeri",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(caseItem.legalIssue, style = MaterialTheme.typography.bodyMedium)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    isTimerRunning = false
-                                    stage = CaseStage.WHEEL
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth()
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    .padding(14.dp)
                             ) {
-                                Icon(Icons.Default.RestartAlt, contentDescription = null)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Karuselə Qayıt")
+                                Column {
+                                    Text(
+                                        text = caseItem.wheelItem.title,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = caseItem.facts,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Hüquqi Sual: ${caseItem.legalIssue}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LegalGoldDark,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            CountdownTimerView(
+                                isRunning = sessionManager.isCaseTimerRunning,
+                                initialMinutes = sessionManager.casePreparationTimerMinutes,
+                                persistedSecondsRemaining = sessionManager.caseSecondsRemaining,
+                                persistedTotalSeconds = sessionManager.caseTotalSeconds,
+                                onStartTimer = { mins ->
+                                    sessionManager.casePreparationTimerMinutes = mins
+                                    sessionManager.caseTotalSeconds = mins * 60
+                                    sessionManager.caseSecondsRemaining = mins * 60
+                                    sessionManager.isCaseTimerRunning = true
+                                },
+                                onSecondsTick = { secs ->
+                                    sessionManager.caseSecondsRemaining = secs
+                                },
+                                onTimeExpired = {
+                                    sessionManager.isCaseTimerRunning = false
+                                    sessionManager.caseStage = CaseStage.SOLUTION_SUBMISSION
+                                },
+                                onReadyNow = {
+                                    sessionManager.isCaseTimerRunning = false
+                                    sessionManager.caseStage = CaseStage.SOLUTION_SUBMISSION
+                                },
+                                onOpenLibrary = onNavigateToLibrary
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { sessionManager.caseStage = CaseStage.WHEEL },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("Geri Qayıt")
+                                }
+                                Button(
+                                    onClick = { sessionManager.caseStage = CaseStage.SOLUTION_SUBMISSION },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = LegalGoldDark,
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    Text("Həlli Yaz")
+                                }
                             }
                         }
                     }
@@ -356,198 +476,251 @@ fun CaseStudyScreen(
             }
 
             CaseStage.SOLUTION_SUBMISSION -> {
-                if (evaluationResult == null) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("case_solution_card"),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Text(
-                                text = "Kazusun Həlli və Hüquqi Tövsif",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                sessionManager.selectedCase?.let { caseItem ->
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Case facts review
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                             )
-                            Text(
-                                text = "Məhkəmə qətnaməsi standartlarına uyğun əsaslandırma daxil edin",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = caseItem.wheelItem.title,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = caseItem.facts,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
 
-                            Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                            OutlinedTextField(
-                                value = qualificationText,
-                                onValueChange = { qualificationText = it },
-                                label = { Text("1. Faktların Hüquqi Tövsifi") },
-                                placeholder = { Text("Məs: Tərəflər arasında bağlanmış əqd AR MM 139-cu maddəsinin tələblərinə zidd olaraq...") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(110.dp)
-                                    .testTag("case_qualification_input"),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LegalGold)
-                            )
+                        // Solution Form
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "Kazusun Hüquqi Həlli",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
 
-                            OutlinedTextField(
-                                value = legalArticlesText,
-                                onValueChange = { legalArticlesText = it },
-                                label = { Text("2. Qanunvericilik Maddələrinə İstinad") },
-                                placeholder = { Text("Məs: AR Mülki Məcəlləsi m. 182, 337.1; AR Konstitusiyası m. 60...") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(90.dp)
-                                    .testTag("case_articles_input"),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LegalGold)
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            OutlinedTextField(
-                                value = verdictProposalText,
-                                onValueChange = { verdictProposalText = it },
-                                label = { Text("3. Nəticə və Məhkəmə Qətnaməsi Təklifi") },
-                                placeholder = { Text("Məs: İddia təmin edilsin, mənzil üzərində alqı-satqı əhəmiyyətsiz hesab edilsin...") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(100.dp)
-                                    .testTag("case_verdict_input"),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LegalGold)
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            val isReady = qualificationText.trim().length >= 10 && verdictProposalText.trim().length >= 10
-
-                            Button(
-                                onClick = {
-                                    val full = "Hüquqi Tövsif: $qualificationText\nİstinadlar: $legalArticlesText\nQərar Təklifi: $verdictProposalText"
-                                    combinedSolution = full
-                                    isEvaluating = true
-                                    scope.launch {
-                                        val caseObj = selectedCase ?: PracticalCasesList[0]
-                                        val eval = AiLegalJudge.evaluateCaseStudy(
-                                            caseTitle = caseObj.wheelItem.title,
-                                            caseDescription = caseObj.facts,
-                                            userSolution = full
-                                        )
-                                        evaluationResult = eval
-                                        isEvaluating = false
-
-                                        // Save to DB
-                                        val entity = ExamResultEntity(
-                                            examType = "CASE",
-                                            title = caseObj.wheelItem.title,
-                                            topicCategory = caseObj.wheelItem.category,
-                                            userAnswerText = full,
-                                            score = eval.score,
-                                            verdict = eval.verdict,
-                                            accuracyScore = eval.accuracyScore,
-                                            terminologyScore = eval.terminologyScore,
-                                            reasoningScore = eval.reasoningScore,
-                                            fluencyScore = eval.fluencyScore,
-                                            feedback = eval.feedback,
-                                            recommendations = eval.recommendations
-                                        )
-                                        lastSavedCaseId = repository.saveExamResult(entity)
-                                    }
-                                },
-                                enabled = isReady && !isEvaluating,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = LegalNavyPrimary,
-                                    contentColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(50.dp)
-                                    .testTag("submit_case_button")
-                            ) {
-                                if (isEvaluating) {
-                                    CircularProgressIndicator(
-                                        color = LegalGold,
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp
+                                OutlinedTextField(
+                                    value = sessionManager.qualificationText,
+                                    onValueChange = { sessionManager.qualificationText = it },
+                                    label = { Text("Faktların Hüquqi Tövsifi") },
+                                    placeholder = { Text("Tərəflərin hərəkətlərinə hüquqi qiymət verin...") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("case_qualification_input"),
+                                    minLines = 3,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = LegalGold,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
                                     )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text("Hakim Kazusu Qiymətləndirir...")
-                                } else {
-                                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = LegalGold)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Kazus Həllini Təqdim Et", fontWeight = FontWeight.Bold)
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                OutlinedTextField(
+                                    value = sessionManager.legalArticlesText,
+                                    onValueChange = { sessionManager.legalArticlesText = it },
+                                    label = { Text("İstinad Edilən Qanunvericilik Maddələri") },
+                                    placeholder = { Text("məs: AR Mülki Məcəlləsi m. 139, 337...") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("case_articles_input"),
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = LegalGold,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                OutlinedTextField(
+                                    value = sessionManager.verdictProposalText,
+                                    onValueChange = { sessionManager.verdictProposalText = it },
+                                    label = { Text("Məhkəmə Qərarı / Qətnamə Layihəsi") },
+                                    placeholder = { Text("İddianın təmin və ya rədd edilməsi barədə nəticə...") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("case_verdict_input"),
+                                    minLines = 3,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = LegalGold,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Button(
+                                    onClick = {
+                                        val combined = """
+                                            Hüquqi Tövsif: ${sessionManager.qualificationText}
+                                            Qanunvericilik maddələri: ${sessionManager.legalArticlesText}
+                                            Qərar layihəsi: ${sessionManager.verdictProposalText}
+                                        """.trimIndent()
+
+                                        sessionManager.isCaseEvaluating = true
+                                        scope.launch {
+                                            val result = AiLegalJudge.evaluateCaseStudy(
+                                                caseTitle = caseItem.wheelItem.title,
+                                                caseDescription = caseItem.facts,
+                                                userSolution = combined
+                                            )
+                                            sessionManager.caseEvaluationResult = result
+                                            sessionManager.isCaseEvaluating = false
+
+                                            val uid = currentUser?.id ?: ""
+                                            if (result.score == 0 || result.isZeroPenalty) {
+                                                val penaltyUntil = System.currentTimeMillis() + 10 * 60 * 1000
+                                                if (uid.isNotBlank()) {
+                                                    firestoreRepository.setUserTimeout(uid, penaltyUntil)
+                                                }
+                                            } else {
+                                                if (uid.isNotBlank()) {
+                                                    firestoreRepository.updateUserPoints(uid, result.score.toLong(), isExamWin = result.score >= 60)
+                                                }
+                                            }
+
+                                            val savedId = repository.saveExamResult(
+                                                ExamResultEntity(
+                                                    examType = "CASE",
+                                                    title = caseItem.wheelItem.title,
+                                                    topicCategory = caseItem.wheelItem.category,
+                                                    userAnswerText = combined,
+                                                    score = result.score,
+                                                    verdict = result.verdict,
+                                                    accuracyScore = result.accuracyScore,
+                                                    terminologyScore = result.terminologyScore,
+                                                    reasoningScore = result.reasoningScore,
+                                                    fluencyScore = result.fluencyScore,
+                                                    feedback = result.feedback,
+                                                    recommendations = result.recommendations,
+                                                    appealStatus = "NONE",
+                                                    createdAt = System.currentTimeMillis()
+                                                )
+                                            )
+                                            sessionManager.caseLastSavedCaseId = savedId
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .testTag("submit_case_solution_button"),
+                                    enabled = !sessionManager.isCaseEvaluating,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = LegalNavyPrimary,
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    if (sessionManager.isCaseEvaluating) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            color = Color.White,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Gemini AI Qiymətləndirir...")
+                                    } else {
+                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Həlli Təqdim Et")
+                                    }
                                 }
                             }
                         }
-                    }
-                } else {
-                    // Evaluation Result Display
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            evaluationResult?.let { res ->
-                                EvaluationResultCard(
-                                    result = res,
-                                    onOpenAppeal = {
-                                        appealOutcome = null
-                                        showAppealDialog = true
-                                    },
-                                    onReset = {
-                                        evaluationResult = null
-                                        selectedCase = null
-                                        qualificationText = ""
-                                        legalArticlesText = ""
-                                        verdictProposalText = ""
-                                        stage = CaseStage.WHEEL
-                                    }
-                                )
+
+                        // Evaluation Result Card
+                        sessionManager.caseEvaluationResult?.let { result ->
+                            Spacer(modifier = Modifier.height(16.dp))
+                            EvaluationResultCard(
+                                result = result,
+                                onOpenAppeal = { sessionManager.showCaseAppealDialog = true },
+                                onReset = { sessionManager.resetCaseSession() }
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedButton(
+                                onClick = { sessionManager.resetCaseSession() },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Yeni Kazus Seç")
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    // Appeal Dialog for Case
-    if (showAppealDialog) {
-        AppealDialog(
-            userCurrentPoints = userProfile?.totalPoints ?: 450,
-            examTitle = selectedCase?.wheelItem?.title ?: "Kazus Həlli",
-            onDismiss = { showAppealDialog = false },
-            onSubmitAppeal = { wager, justification ->
-                isProcessingAppeal = true
-                scope.launch {
-                    val outcome = AiLegalJudge.reviewAppeal(
-                        examTitle = selectedCase?.wheelItem?.title ?: "Kazus",
-                        userAnswer = combinedSolution,
-                        wager = wager,
-                        justification = justification
-                    )
-                    appealOutcome = outcome
-                    isProcessingAppeal = false
-
-                    lastSavedCaseId?.let { caseId ->
-                        repository.submitAppeal(
-                            examId = caseId,
+        // Appeal Dialog
+        if (sessionManager.showCaseAppealDialog && sessionManager.caseEvaluationResult != null) {
+            val userPts = currentUser?.points?.toInt() ?: 100
+            AppealDialog(
+                userCurrentPoints = userPts,
+                examTitle = sessionManager.selectedCase?.wheelItem?.title ?: "Praktiki Kazus",
+                isProcessing = sessionManager.isProcessingCaseAppeal,
+                appealResult = sessionManager.caseAppealOutcome,
+                onSubmitAppeal = { wager, justification ->
+                    sessionManager.isProcessingCaseAppeal = true
+                    scope.launch {
+                        val appealResult = AiLegalJudge.reviewAppeal(
+                            examTitle = sessionManager.selectedCase?.wheelItem?.title ?: "Praktiki Kazus",
+                            userAnswer = "${sessionManager.qualificationText}\n${sessionManager.legalArticlesText}",
                             wager = wager,
-                            justification = justification,
-                            isSuccess = outcome.isSuccess,
-                            appealFeedback = outcome.reasoning
+                            justification = justification
                         )
+                        sessionManager.caseAppealOutcome = appealResult
+                        sessionManager.isProcessingCaseAppeal = false
+
+                        val uid = currentUser?.id ?: ""
+                        if (appealResult.isSuccess) {
+                            if (uid.isNotBlank()) {
+                                firestoreRepository.updateUserPoints(uid, (wager * 0.5).toLong() + appealResult.scoreAdjustment, isExamWin = true)
+                            }
+                        } else {
+                            if (uid.isNotBlank()) {
+                                firestoreRepository.updateUserPoints(uid, -wager.toLong(), isExamWin = false)
+                            }
+                        }
+
+                        sessionManager.caseLastSavedCaseId?.let { id ->
+                            repository.submitAppeal(
+                                examId = id,
+                                wager = wager,
+                                justification = justification,
+                                isSuccess = appealResult.isSuccess,
+                                appealFeedback = appealResult.reasoning
+                            )
+                        }
                     }
+                },
+                onDismiss = {
+                    sessionManager.showCaseAppealDialog = false
+                    sessionManager.caseAppealOutcome = null
                 }
-            },
-            isProcessing = isProcessingAppeal,
-            appealResult = appealOutcome
-        )
+            )
+        }
     }
 }
