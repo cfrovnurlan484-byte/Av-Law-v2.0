@@ -894,15 +894,39 @@ fun AuthScreen(
     }
 }
 
+private fun Context.findActivity(): Activity? {
+    var current = this
+    while (current is android.content.ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
+}
+
 private suspend fun performGoogleSignIn(
     context: Context,
     auth: FirebaseAuth,
     onSuccess: (com.google.firebase.auth.FirebaseUser) -> Unit,
     onError: (String) -> Unit
 ) {
+    val activity = context.findActivity()
+    if (activity == null) {
+        onError("Giriş üçün pəncərə konteksti tapılmadı.")
+        return
+    }
+
     try {
         val credentialManager = CredentialManager.create(context)
-        val webClientId = context.getString(R.string.default_web_client_id)
+        val webClientId = try {
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            if (resId != 0) context.getString(resId) else context.getString(R.string.default_web_client_id)
+        } catch (_: Exception) {
+            try {
+                context.getString(R.string.default_web_client_id)
+            } catch (_: Exception) {
+                "dummy_client_id_for_build"
+            }
+        }
 
         val googleIdOption = GetSignInWithGoogleOption.Builder(webClientId)
             .build()
@@ -913,7 +937,7 @@ private suspend fun performGoogleSignIn(
 
         val result = credentialManager.getCredential(
             request = request,
-            context = context as Activity
+            context = activity
         )
 
         val credential = result.credential
