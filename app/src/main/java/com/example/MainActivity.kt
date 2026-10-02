@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
             if (com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
                 com.google.firebase.FirebaseApp.initializeApp(this)
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("MainActivity", "FirebaseApp init error", e)
         }
 
@@ -122,18 +122,18 @@ class MainActivity : ComponentActivity() {
             } else {
                 FirebaseFirestore.getInstance()
             }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Firestore instance error, using default", e)
-            try {
-                FirebaseFirestore.getInstance()
-            } catch (e2: Exception) {
-                Log.e("MainActivity", "Failed to get default Firestore instance", e2)
-                null
-            }
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "Firestore instance error, using fallback null", e)
+            null
         }
-        firestoreRepository = FirestoreRepository(firestoreDb ?: FirebaseFirestore.getInstance())
+        firestoreRepository = FirestoreRepository(firestoreDb)
 
-        database = AppDatabase.getDatabase(this, lifecycleScope)
+        try {
+            database = AppDatabase.getDatabase(this, lifecycleScope)
+        } catch (t: Throwable) {
+            Log.e("MainActivity", "Failed to get database, falling back", t)
+            database = AppDatabase.createFallbackDatabase()
+        }
         repository = LegalRepository(database)
 
         setContent {
@@ -163,10 +163,10 @@ fun AppRootGate(
     val auth = remember {
         try {
             Firebase.auth
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             try {
                 FirebaseAuth.getInstance()
-            } catch (e2: Exception) {
+            } catch (e2: Throwable) {
                 null
             }
         }
@@ -176,6 +176,9 @@ fun AppRootGate(
     var isLoadingProfile by remember { mutableStateOf(auth?.currentUser != null) }
 
     DisposableEffect(auth) {
+        if (auth == null) {
+            return@DisposableEffect onDispose {}
+        }
         val listener = FirebaseAuth.AuthStateListener { fa ->
             firebaseUser = fa.currentUser
             if (fa.currentUser == null) {
@@ -183,16 +186,31 @@ fun AppRootGate(
                 isLoadingProfile = false
             }
         }
-        auth?.addAuthStateListener(listener)
-        onDispose { auth?.removeAuthStateListener(listener) }
+        try {
+            auth.addAuthStateListener(listener)
+        } catch (e: Throwable) {
+            Log.e("AppRootGate", "Error adding auth state listener", e)
+        }
+        onDispose {
+            try {
+                auth.removeAuthStateListener(listener)
+            } catch (e: Throwable) {
+                Log.e("AppRootGate", "Error removing auth state listener", e)
+            }
+        }
     }
 
     LaunchedEffect(firebaseUser?.uid) {
         val uid = firebaseUser?.uid
         if (uid != null) {
             isLoadingProfile = true
-            firestoreRepository.observeUser(uid).collect { profile ->
-                currentUserProfile = profile
+            try {
+                firestoreRepository.observeUser(uid).collect { profile ->
+                    currentUserProfile = profile
+                    isLoadingProfile = false
+                }
+            } catch (e: Throwable) {
+                Log.e("AppRootGate", "Error collecting user profile", e)
                 isLoadingProfile = false
             }
         } else {

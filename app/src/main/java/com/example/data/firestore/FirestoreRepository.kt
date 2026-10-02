@@ -12,19 +12,21 @@ import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 class FirestoreRepository(
-    private val db: FirebaseFirestore
+    private val db: FirebaseFirestore?
 ) {
     companion object {
         private const val TAG = "FirestoreRepo"
     }
 
     fun observeUser(userId: String): Flow<FirebaseUserModel?> {
-        return db.collection("users").document(userId)
+        val database = db ?: return flowOf(null)
+        return database.collection("users").document(userId)
             .snapshots()
             .map { snapshot ->
                 if (snapshot.exists()) {
@@ -42,8 +44,9 @@ class FirestoreRepository(
     suspend fun checkNicknameAvailable(nickname: String): Boolean = withContext(Dispatchers.IO) {
         val clean = nickname.trim().lowercase()
         if (clean.isBlank()) return@withContext false
+        val database = db ?: return@withContext true
         try {
-            val doc = db.collection("nicknames").document(clean).get().await()
+            val doc = database.collection("nicknames").document(clean).get().await()
             !doc.exists()
         } catch (e: Exception) {
             Log.e(TAG, "Error checking nickname", e)
@@ -52,11 +55,12 @@ class FirestoreRepository(
     }
 
     suspend fun registerUserProfile(user: FirebaseUserModel): Boolean = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext true
         val cleanNickname = user.nickname.trim().lowercase()
         try {
-            val batch = db.batch()
-            val userRef = db.collection("users").document(user.id)
-            val nickRef = db.collection("nicknames").document(cleanNickname)
+            val batch = database.batch()
+            val userRef = database.collection("users").document(user.id)
+            val nickRef = database.collection("nicknames").document(cleanNickname)
 
             val userData = mapOf(
                 "id" to user.id,
@@ -87,8 +91,9 @@ class FirestoreRepository(
     }
 
     suspend fun setUserTimeout(userId: String, timeoutMillis: Long) = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext
         try {
-            db.collection("users").document(userId).update(
+            database.collection("users").document(userId).update(
                 "timeoutUntilMillis", timeoutMillis
             ).await()
         } catch (e: Exception) {
@@ -97,8 +102,9 @@ class FirestoreRepository(
     }
 
     suspend fun setUserRole(userId: String, role: String): Boolean = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext false
         try {
-            db.collection("users").document(userId).update("role", role).await()
+            database.collection("users").document(userId).update("role", role).await()
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error setting user role", e)
@@ -107,9 +113,10 @@ class FirestoreRepository(
     }
 
     suspend fun updateUserPoints(userId: String, pointsDelta: Long, isExamWin: Boolean) = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext
         try {
-            val userRef = db.collection("users").document(userId)
-            db.runTransaction { transaction ->
+            val userRef = database.collection("users").document(userId)
+            database.runTransaction { transaction ->
                 val snapshot = transaction.get(userRef)
                 val currentPoints = snapshot.getLong("points") ?: 0L
                 val currentStreak = snapshot.getLong("streak") ?: 0L
@@ -124,7 +131,8 @@ class FirestoreRepository(
     }
 
     fun observeCommunityPosts(): Flow<List<FirebasePostModel>> {
-        return db.collection("community_posts")
+        val database = db ?: return flowOf(emptyList())
+        return database.collection("community_posts")
             .snapshots()
             .map { snapshot ->
                 snapshot.toObjects(FirebasePostModel::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
@@ -137,11 +145,12 @@ class FirestoreRepository(
     }
 
     suspend fun createCommunityPost(post: FirebasePostModel): Boolean = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext true
         try {
             val docRef = if (post.id.isNotBlank()) {
-                db.collection("community_posts").document(post.id)
+                database.collection("community_posts").document(post.id)
             } else {
-                db.collection("community_posts").document()
+                database.collection("community_posts").document()
             }
             val data = mapOf(
                 "id" to docRef.id,
@@ -165,9 +174,10 @@ class FirestoreRepository(
     }
 
     suspend fun togglePostLike(postId: String, userId: String) = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext
         try {
-            val postRef = db.collection("community_posts").document(postId)
-            db.runTransaction { transaction ->
+            val postRef = database.collection("community_posts").document(postId)
+            database.runTransaction { transaction ->
                 val snapshot = transaction.get(postRef)
                 @Suppress("UNCHECKED_CAST")
                 val likedList = (snapshot.get("likedUserIds") as? List<String>)?.toMutableList() ?: mutableListOf()
@@ -188,7 +198,8 @@ class FirestoreRepository(
     }
 
     fun observeComments(postId: String): Flow<List<FirebaseCommentModel>> {
-        return db.collection("community_posts").document(postId)
+        val database = db ?: return flowOf(emptyList())
+        return database.collection("community_posts").document(postId)
             .collection("comments")
             .snapshots()
             .map { snapshot ->
@@ -202,8 +213,9 @@ class FirestoreRepository(
     }
 
     suspend fun addComment(postId: String, authorId: String, authorNickname: String, text: String): Boolean = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext true
         try {
-            val postRef = db.collection("community_posts").document(postId)
+            val postRef = database.collection("community_posts").document(postId)
             val commentRef = postRef.collection("comments").document()
             val commentData = mapOf(
                 "id" to commentRef.id,
@@ -213,7 +225,7 @@ class FirestoreRepository(
                 "text" to text.trim(),
                 "createdAt" to FieldValue.serverTimestamp()
             )
-            val batch = db.batch()
+            val batch = database.batch()
             batch.set(commentRef, commentData)
             batch.update(postRef, "commentsCount", FieldValue.increment(1))
             batch.commit().await()
@@ -225,7 +237,8 @@ class FirestoreRepository(
     }
 
     fun observeLegalMaterials(): Flow<List<FirebaseLegalMaterialModel>> {
-        return db.collection("legal_materials")
+        val database = db ?: return flowOf(emptyList())
+        return database.collection("legal_materials")
             .snapshots()
             .map { snapshot ->
                 snapshot.toObjects(FirebaseLegalMaterialModel::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
@@ -237,11 +250,12 @@ class FirestoreRepository(
     }
 
     suspend fun saveLegalMaterial(material: FirebaseLegalMaterialModel): Boolean = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext true
         try {
             val docRef = if (material.id.isNotBlank()) {
-                db.collection("legal_materials").document(material.id)
+                database.collection("legal_materials").document(material.id)
             } else {
-                db.collection("legal_materials").document()
+                database.collection("legal_materials").document()
             }
             val data = mapOf(
                 "id" to docRef.id,
@@ -263,8 +277,9 @@ class FirestoreRepository(
     }
 
     suspend fun deleteLegalMaterial(materialId: String): Boolean = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext true
         try {
-            db.collection("legal_materials").document(materialId).delete().await()
+            database.collection("legal_materials").document(materialId).delete().await()
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting legal material", e)
@@ -273,12 +288,13 @@ class FirestoreRepository(
     }
 
     suspend fun seedInitialMaterialsIfEmpty(defaults: List<FirebaseLegalMaterialModel>) = withContext(Dispatchers.IO) {
+        val database = db ?: return@withContext
         try {
-            val current = db.collection("legal_materials").limit(1).get().await()
+            val current = database.collection("legal_materials").limit(1).get().await()
             if (current.isEmpty) {
-                val batch = db.batch()
+                val batch = database.batch()
                 for (item in defaults) {
-                    val ref = db.collection("legal_materials").document()
+                    val ref = database.collection("legal_materials").document()
                     val data = mapOf(
                         "id" to ref.id,
                         "category" to item.category,

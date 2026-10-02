@@ -41,16 +41,31 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        fun createFallbackDatabase(): AppDatabase {
+            return FallbackAppDatabase()
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "azhuquq_database"
-                )
-                    .fallbackToDestructiveMigration(dropAllTables = true)
-                    .addCallback(DatabaseCallback(scope))
-                    .build()
+                val instance = try {
+                    Room.databaseBuilder(
+                        context.applicationContext,
+                        AppDatabase::class.java,
+                        "azhuquq_database"
+                    )
+                        .fallbackToDestructiveMigration(dropAllTables = true)
+                        .addCallback(DatabaseCallback(scope))
+                        .build()
+                } catch (t: Throwable) {
+                    android.util.Log.e("AppDatabase", "Room.databaseBuilder failed; attempting fallback", t)
+                    try {
+                        val implClass = Class.forName("com.example.data.local.AppDatabase_Impl")
+                        (implClass.getDeclaredConstructor().newInstance() as AppDatabase)
+                    } catch (t2: Throwable) {
+                        android.util.Log.e("AppDatabase", "AppDatabase_Impl reflection failed, activating FallbackAppDatabase", t2)
+                        FallbackAppDatabase()
+                    }
+                }
                 INSTANCE = instance
                 instance
             }

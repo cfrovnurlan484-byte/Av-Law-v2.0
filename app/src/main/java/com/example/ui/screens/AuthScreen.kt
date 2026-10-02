@@ -94,14 +94,34 @@ fun AuthScreen(
     val auth = remember {
         try {
             Firebase.auth
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             try {
                 FirebaseAuth.getInstance()
-            } catch (e2: Exception) {
+            } catch (e2: Throwable) {
                 null
             }
         }
     }
+
+    val rawGoogleClientId = remember {
+        try {
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            val id = if (resId != 0) context.getString(resId) else context.getString(R.string.default_web_client_id)
+            id.trim()
+        } catch (e: Throwable) {
+            ""
+        }
+    }
+
+    val isGoogleClientConfigured = remember(rawGoogleClientId) {
+        rawGoogleClientId.isNotBlank() &&
+        rawGoogleClientId != "dummy_client_id_for_build" &&
+        rawGoogleClientId != "placeholder" &&
+        rawGoogleClientId.contains(".apps.googleusercontent.com")
+    }
+
+    var showGoogleUnavailableDialog by remember { mutableStateOf(false) }
+    var googleUnavailableMessage by remember { mutableStateOf("") }
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -593,34 +613,61 @@ fun AuthScreen(
                         onClick = {
                             if (isLoading) return@OutlinedButton
                             if (auth == null) {
-                                errorMessage = "Google Giriş xidməti hazırda aktiv deyil."
+                                googleUnavailableMessage = "Autentifikasiya xidməti aktiv deyil. Şəbəkə bağlantısını yoxlayın."
+                                showGoogleUnavailableDialog = true
+                                Toast.makeText(context, "Autentifikasiya xidməti hazır deyil.", Toast.LENGTH_SHORT).show()
                                 return@OutlinedButton
                             }
+
+                            // Rigorous safeguard check: Detect placeholder ID
+                            if (!isGoogleClientConfigured) {
+                                Log.w("AuthScreen", "Google Sign-In blocked: placeholder or unconfigured client ID detected: $rawGoogleClientId")
+                                googleUnavailableMessage = "Google ilə daxil olma konfiqurasiya edilməyib (default_web_client_id tapılmadı və ya placeholder təyin olunub). Zəhmət olmasa e-poçt və şifrənizlə daxil olun."
+                                showGoogleUnavailableDialog = true
+                                Toast.makeText(context, "Google Giriş aktiv deyil. E-poçt ilə daxil olun.", Toast.LENGTH_LONG).show()
+                                return@OutlinedButton
+                            }
+
                             isLoading = true
                             errorMessage = null
                             scope.launch {
-                                performGoogleSignIn(
-                                    context = context,
-                                    auth = auth,
-                                    onSuccess = { user ->
-                                        scope.launch {
-                                            firestoreRepository.observeUser(user.uid).collect { existingProfile ->
-                                                isLoading = false
-                                                if (existingProfile != null && existingProfile.nickname.isNotBlank()) {
-                                                    onAuthSuccess(existingProfile)
-                                                } else {
+                                try {
+                                    performGoogleSignIn(
+                                        context = context,
+                                        auth = auth,
+                                        clientId = rawGoogleClientId,
+                                        onSuccess = { user ->
+                                            scope.launch {
+                                                try {
+                                                    firestoreRepository.observeUser(user.uid).collect { existingProfile ->
+                                                        isLoading = false
+                                                        if (existingProfile != null && existingProfile.nickname.isNotBlank()) {
+                                                            onAuthSuccess(existingProfile)
+                                                        } else {
+                                                            tempUid = user.uid
+                                                            tempEmail = user.email ?: ""
+                                                            showNicknameSetup = true
+                                                        }
+                                                    }
+                                                } catch (t: Throwable) {
+                                                    Log.e("AuthScreen", "Error observing user profile", t)
+                                                    isLoading = false
                                                     tempUid = user.uid
                                                     tempEmail = user.email ?: ""
                                                     showNicknameSetup = true
                                                 }
                                             }
+                                        },
+                                        onError = { err ->
+                                            isLoading = false
+                                            errorMessage = err
                                         }
-                                    },
-                                    onError = { err ->
-                                        isLoading = false
-                                        errorMessage = err
-                                    }
-                                )
+                                    )
+                                } catch (t: Throwable) {
+                                    Log.e("AuthScreen", "Unexpected Google Sign-in launch exception", t)
+                                    isLoading = false
+                                    errorMessage = "Giriş xətası: ${t.localizedMessage ?: "Naməlum xəta"}"
+                                }
                             }
                         },
                         modifier = Modifier
@@ -910,6 +957,48 @@ fun AuthScreen(
             }
         }
     }
+
+    if (showGoogleUnavailableDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showGoogleUnavailableDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = LegalGold,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Google Girişi Əlçatan Deyil",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = googleUnavailableMessage,
+                    fontSize = 13.sp,
+                    color = Color(0xFFC0CAD5)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showGoogleUnavailableDialog = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = LegalGold,
+                        contentColor = LegalNavyDark
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("E-poçt ilə Davam Et", fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = Color(0xFF162234),
+            titleContentColor = Color.White
+        )
+    }
 }
 
 private fun Context.findActivity(): Activity? {
@@ -924,48 +1013,41 @@ private fun Context.findActivity(): Activity? {
 private suspend fun performGoogleSignIn(
     context: Context,
     auth: FirebaseAuth,
+    clientId: String,
     onSuccess: (com.google.firebase.auth.FirebaseUser) -> Unit,
     onError: (String) -> Unit
 ) {
-    val activity = context.findActivity()
-    if (activity == null) {
-        onError("Giriş üçün pəncərə konteksti tapılmadı.")
-        return
-    }
-
     try {
-        val rawClientId = try {
-            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
-            if (resId != 0) context.getString(resId) else context.getString(R.string.default_web_client_id)
-        } catch (_: Exception) {
-            "1030306626221-kebd574q7oruv9p82n1slsed88c3revl.apps.googleusercontent.com"
+        val activity = context.findActivity()
+        if (activity == null) {
+            onError("Giriş üçün pəncərə konteksti tapılmadı.")
+            return
         }
 
-        val webClientId = if (rawClientId.isNullOrBlank() || rawClientId == "dummy_client_id_for_build") {
-            "1030306626221-kebd574q7oruv9p82n1slsed88c3revl.apps.googleusercontent.com"
-        } else {
-            rawClientId.trim()
-        }
-
-        // Validate client id safeguard
-        if (webClientId.isBlank() || webClientId == "dummy_client_id_for_build" || !webClientId.contains(".")) {
-            onError("Google Giriş parametri düzgün konfiqurasiya edilməyib. Zəhmət olmasa e-poçt və şifrə ilə daxil olun.")
+        val cleanClientId = clientId.trim()
+        // Rigorous safeguard check: Detect placeholder or invalid ID
+        if (cleanClientId.isBlank() ||
+            cleanClientId == "dummy_client_id_for_build" ||
+            cleanClientId == "placeholder" ||
+            !cleanClientId.contains(".apps.googleusercontent.com")
+        ) {
+            onError("Google Giriş parametri konfiqurasiya edilməyib. Zəhmət olmasa e-poçt və şifrə ilə daxil olun.")
             return
         }
 
         val credentialManager = try {
             CredentialManager.create(context)
-        } catch (e: Exception) {
-            Log.e("AuthScreen", "CredentialManager creation failed", e)
-            onError("Giriş xidməti başladılarkən xəta baş verdi: ${e.localizedMessage}")
+        } catch (t: Throwable) {
+            Log.e("AuthScreen", "CredentialManager creation failed", t)
+            onError("Giriş xidməti başladılarkən xəta baş verdi: ${t.localizedMessage}")
             return
         }
 
         val googleIdOption = try {
-            GetSignInWithGoogleOption.Builder(webClientId)
+            GetSignInWithGoogleOption.Builder(cleanClientId)
                 .build()
-        } catch (e: Exception) {
-            Log.e("AuthScreen", "Invalid Web Client ID for Google Sign-In", e)
+        } catch (t: Throwable) {
+            Log.e("AuthScreen", "Invalid Web Client ID for Google Sign-In", t)
             onError("Google Giriş xidməti hazır deyil (Client ID xətası). Zəhmət olmasa e-poçt ilə daxil olun.")
             return
         }
@@ -974,8 +1056,8 @@ private suspend fun performGoogleSignIn(
             GetCredentialRequest.Builder()
                 .addCredentialOption(googleIdOption)
                 .build()
-        } catch (e: Exception) {
-            Log.e("AuthScreen", "GetCredentialRequest failed", e)
+        } catch (t: Throwable) {
+            Log.e("AuthScreen", "GetCredentialRequest failed", t)
             onError("Giriş sorğusu yaradılarkən xəta baş verdi.")
             return
         }
@@ -986,12 +1068,12 @@ private suspend fun performGoogleSignIn(
                 context = activity
             )
         } catch (e: GetCredentialCancellationException) {
-            Log.w("AuthScreen", "Sign-in cancelled by user")
+            Log.i("AuthScreen", "Sign-in cancelled by user")
             onError("Giriş prosesi istifadəçi tərəfindən dayandırıldı.")
             return
-        } catch (e: Exception) {
-            Log.e("AuthScreen", "Google Sign-in getCredential failed", e)
-            onError("Google hesabı ilə daxil olarkən xəta baş verdi: ${e.localizedMessage ?: "Naməlum xəta"}")
+        } catch (t: Throwable) {
+            Log.e("AuthScreen", "Google Sign-in getCredential failed", t)
+            onError("Google hesabı ilə daxil olarkən xəta baş verdi: ${t.localizedMessage ?: "Naməlum xəta"}")
             return
         }
 
@@ -1011,8 +1093,8 @@ private suspend fun performGoogleSignIn(
         } else {
             onError("Gözlənilməz giriş növü aşkarlandı.")
         }
-    } catch (e: Exception) {
-        Log.e("AuthScreen", "Google Sign-in failed", e)
-        onError("Daxil olma zamanı xəta baş verdi: ${e.localizedMessage ?: "Naməlum xəta"}")
+    } catch (t: Throwable) {
+        Log.e("AuthScreen", "Google Sign-in failed", t)
+        onError("Daxil olma zamanı xəta baş verdi: ${t.localizedMessage ?: "Naməlum xəta"}")
     }
 }
