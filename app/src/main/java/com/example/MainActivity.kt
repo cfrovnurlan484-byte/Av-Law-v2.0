@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -105,9 +106,32 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val databaseId = getString(R.string.firestore_database_id)
-        val firestoreDb = FirebaseFirestore.getInstance(databaseId)
-        firestoreRepository = FirestoreRepository(firestoreDb)
+        try {
+            if (com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
+                com.google.firebase.FirebaseApp.initializeApp(this)
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "FirebaseApp init error", e)
+        }
+
+        val firestoreDb = try {
+            val resId = resources.getIdentifier("firestore_database_id", "string", packageName)
+            val dbId = if (resId != 0) getString(resId) else null
+            if (!dbId.isNullOrBlank()) {
+                FirebaseFirestore.getInstance(dbId)
+            } else {
+                FirebaseFirestore.getInstance()
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Firestore instance error, using default", e)
+            try {
+                FirebaseFirestore.getInstance()
+            } catch (e2: Exception) {
+                Log.e("MainActivity", "Failed to get default Firestore instance", e2)
+                null
+            }
+        }
+        firestoreRepository = FirestoreRepository(firestoreDb ?: FirebaseFirestore.getInstance())
 
         database = AppDatabase.getDatabase(this, lifecycleScope)
         repository = LegalRepository(database)
@@ -136,10 +160,20 @@ fun AppRootGate(
     repository: LegalRepository,
     firestoreRepository: FirestoreRepository
 ) {
-    val auth = Firebase.auth
-    var firebaseUser by remember { mutableStateOf(auth.currentUser) }
+    val auth = remember {
+        try {
+            Firebase.auth
+        } catch (e: Exception) {
+            try {
+                FirebaseAuth.getInstance()
+            } catch (e2: Exception) {
+                null
+            }
+        }
+    }
+    var firebaseUser by remember { mutableStateOf(auth?.currentUser) }
     var currentUserProfile by remember { mutableStateOf<FirebaseUserModel?>(null) }
-    var isLoadingProfile by remember { mutableStateOf(true) }
+    var isLoadingProfile by remember { mutableStateOf(auth?.currentUser != null) }
 
     DisposableEffect(auth) {
         val listener = FirebaseAuth.AuthStateListener { fa ->
@@ -149,8 +183,8 @@ fun AppRootGate(
                 isLoadingProfile = false
             }
         }
-        auth.addAuthStateListener(listener)
-        onDispose { auth.removeAuthStateListener(listener) }
+        auth?.addAuthStateListener(listener)
+        onDispose { auth?.removeAuthStateListener(listener) }
     }
 
     LaunchedEffect(firebaseUser?.uid) {

@@ -56,10 +56,14 @@ import com.example.ui.theme.LegalNavyPrimary
 import kotlinx.coroutines.delay
 
 fun checkNetworkConnectivity(context: Context): Boolean {
-    val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-    val activeNetwork = connectivityManager.activeNetwork ?: return false
-    val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
-    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    return try {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val activeNetwork = connectivityManager.activeNetwork ?: return true
+        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return true
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    } catch (e: Exception) {
+        true
+    }
 }
 
 @Composable

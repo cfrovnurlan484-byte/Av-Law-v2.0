@@ -91,7 +91,17 @@ fun AuthScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val auth = Firebase.auth
+    val auth = remember {
+        try {
+            Firebase.auth
+        } catch (e: Exception) {
+            try {
+                FirebaseAuth.getInstance()
+            } catch (e2: Exception) {
+                null
+            }
+        }
+    }
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -431,6 +441,10 @@ fun AuthScreen(
                     Button(
                         onClick = {
                             if (isLoading) return@Button
+                            if (auth == null) {
+                                errorMessage = "Autentifikasiya xidməti aktiv deyil. Şəbəkə bağlantısını yoxlayın."
+                                return@Button
+                            }
                             val cleanEmail = emailInput.trim()
                             val cleanPass = passwordInput.trim()
 
@@ -578,6 +592,10 @@ fun AuthScreen(
                     OutlinedButton(
                         onClick = {
                             if (isLoading) return@OutlinedButton
+                            if (auth == null) {
+                                errorMessage = "Google Giriş xidməti hazırda aktiv deyil."
+                                return@OutlinedButton
+                            }
                             isLoading = true
                             errorMessage = null
                             scope.launch {
@@ -916,29 +934,66 @@ private suspend fun performGoogleSignIn(
     }
 
     try {
-        val credentialManager = CredentialManager.create(context)
-        val webClientId = try {
+        val rawClientId = try {
             val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
             if (resId != 0) context.getString(resId) else context.getString(R.string.default_web_client_id)
         } catch (_: Exception) {
-            try {
-                context.getString(R.string.default_web_client_id)
-            } catch (_: Exception) {
-                "dummy_client_id_for_build"
-            }
+            "1030306626221-kebd574q7oruv9p82n1slsed88c3revl.apps.googleusercontent.com"
         }
 
-        val googleIdOption = GetSignInWithGoogleOption.Builder(webClientId)
-            .build()
+        val webClientId = if (rawClientId.isNullOrBlank() || rawClientId == "dummy_client_id_for_build") {
+            "1030306626221-kebd574q7oruv9p82n1slsed88c3revl.apps.googleusercontent.com"
+        } else {
+            rawClientId.trim()
+        }
 
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
+        // Validate client id safeguard
+        if (webClientId.isBlank() || webClientId == "dummy_client_id_for_build" || !webClientId.contains(".")) {
+            onError("Google Giriş parametri düzgün konfiqurasiya edilməyib. Zəhmət olmasa e-poçt və şifrə ilə daxil olun.")
+            return
+        }
 
-        val result = credentialManager.getCredential(
-            request = request,
-            context = activity
-        )
+        val credentialManager = try {
+            CredentialManager.create(context)
+        } catch (e: Exception) {
+            Log.e("AuthScreen", "CredentialManager creation failed", e)
+            onError("Giriş xidməti başladılarkən xəta baş verdi: ${e.localizedMessage}")
+            return
+        }
+
+        val googleIdOption = try {
+            GetSignInWithGoogleOption.Builder(webClientId)
+                .build()
+        } catch (e: Exception) {
+            Log.e("AuthScreen", "Invalid Web Client ID for Google Sign-In", e)
+            onError("Google Giriş xidməti hazır deyil (Client ID xətası). Zəhmət olmasa e-poçt ilə daxil olun.")
+            return
+        }
+
+        val request = try {
+            GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build()
+        } catch (e: Exception) {
+            Log.e("AuthScreen", "GetCredentialRequest failed", e)
+            onError("Giriş sorğusu yaradılarkən xəta baş verdi.")
+            return
+        }
+
+        val result = try {
+            credentialManager.getCredential(
+                request = request,
+                context = activity
+            )
+        } catch (e: GetCredentialCancellationException) {
+            Log.w("AuthScreen", "Sign-in cancelled by user")
+            onError("Giriş prosesi istifadəçi tərəfindən dayandırıldı.")
+            return
+        } catch (e: Exception) {
+            Log.e("AuthScreen", "Google Sign-in getCredential failed", e)
+            onError("Google hesabı ilə daxil olarkən xəta baş verdi: ${e.localizedMessage ?: "Naməlum xəta"}")
+            return
+        }
 
         val credential = result.credential
         if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
@@ -956,9 +1011,6 @@ private suspend fun performGoogleSignIn(
         } else {
             onError("Gözlənilməz giriş növü aşkarlandı.")
         }
-    } catch (e: GetCredentialCancellationException) {
-        Log.w("AuthScreen", "Sign-in cancelled by user")
-        onError("Giriş prosesi istifadəçi tərəfindən dayandırıldı.")
     } catch (e: Exception) {
         Log.e("AuthScreen", "Google Sign-in failed", e)
         onError("Daxil olma zamanı xəta baş verdi: ${e.localizedMessage ?: "Naməlum xəta"}")
