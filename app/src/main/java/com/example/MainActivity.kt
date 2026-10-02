@@ -48,15 +48,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.withTimeoutOrNull
 import com.example.data.firestore.FirestoreRepository
 import com.example.data.firestore.model.FirebaseUserModel
 import com.example.data.local.AppDatabase
+import com.example.data.local.LocalUserStore
 import com.example.data.repository.LegalRepository
 import com.example.ui.navigation.ExamSessionManager
 import com.example.ui.navigation.LegalTab
@@ -160,6 +163,8 @@ fun AppRootGate(
     repository: LegalRepository,
     firestoreRepository: FirestoreRepository
 ) {
+    val context = LocalContext.current
+    val localUserStore = remember { LocalUserStore(context) }
     val auth = remember {
         try {
             Firebase.auth
@@ -172,8 +177,8 @@ fun AppRootGate(
         }
     }
     var firebaseUser by remember { mutableStateOf(auth?.currentUser) }
-    var currentUserProfile by remember { mutableStateOf<FirebaseUserModel?>(null) }
-    var isLoadingProfile by remember { mutableStateOf(auth?.currentUser != null) }
+    var currentUserProfile by remember { mutableStateOf<FirebaseUserModel?>(localUserStore.getCurrentUser()) }
+    var isLoadingProfile by remember { mutableStateOf(false) }
 
     DisposableEffect(auth) {
         if (auth == null) {
@@ -181,7 +186,7 @@ fun AppRootGate(
         }
         val listener = FirebaseAuth.AuthStateListener { fa ->
             firebaseUser = fa.currentUser
-            if (fa.currentUser == null) {
+            if (fa.currentUser == null && localUserStore.getCurrentUser() == null) {
                 currentUserProfile = null
                 isLoadingProfile = false
             }
@@ -203,19 +208,29 @@ fun AppRootGate(
     LaunchedEffect(firebaseUser?.uid) {
         val uid = firebaseUser?.uid
         if (uid != null) {
-            isLoadingProfile = true
+            val localUser = localUserStore.getCurrentUser()
+            if (localUser != null) {
+                currentUserProfile = localUser
+            } else {
+                isLoadingProfile = true
+            }
             try {
-                firestoreRepository.observeUser(uid).collect { profile ->
-                    currentUserProfile = profile
-                    isLoadingProfile = false
+                withTimeoutOrNull(2000L) {
+                    firestoreRepository.observeUser(uid).collect { profile ->
+                        if (profile != null) {
+                            currentUserProfile = profile
+                            localUserStore.saveCurrentUser(profile)
+                        }
+                    }
                 }
             } catch (e: Throwable) {
                 Log.e("AppRootGate", "Error collecting user profile", e)
+            } finally {
                 isLoadingProfile = false
+                if (currentUserProfile == null) {
+                    currentUserProfile = localUserStore.getCurrentUser()
+                }
             }
-        } else {
-            currentUserProfile = null
-            isLoadingProfile = false
         }
     }
 
@@ -228,10 +243,11 @@ fun AppRootGate(
         ) {
             CircularProgressIndicator(color = LegalGold)
         }
-    } else if (firebaseUser == null || currentUserProfile == null) {
+    } else if (currentUserProfile == null) {
         AuthScreen(
             firestoreRepository = firestoreRepository,
             onAuthSuccess = { profile ->
+                localUserStore.saveCurrentUser(profile)
                 currentUserProfile = profile
             }
         )
@@ -241,7 +257,13 @@ fun AppRootGate(
             firestoreRepository = firestoreRepository,
             currentUser = currentUserProfile!!,
             onSignOut = {
+                localUserStore.clearCurrentUser()
                 currentUserProfile = null
+                try {
+                    auth?.signOut()
+                } catch (e: Throwable) {
+                    Log.e("AppRootGate", "Error during sign out", e)
+                }
             }
         )
     }

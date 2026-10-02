@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class FirestoreRepository(
     private val db: FirebaseFirestore?
@@ -46,8 +47,10 @@ class FirestoreRepository(
         if (clean.isBlank()) return@withContext false
         val database = db ?: return@withContext true
         try {
-            val doc = database.collection("nicknames").document(clean).get().await()
-            !doc.exists()
+            withTimeoutOrNull(2000L) {
+                val doc = database.collection("nicknames").document(clean).get().await()
+                !doc.exists()
+            } ?: true
         } catch (e: Exception) {
             Log.e(TAG, "Error checking nickname", e)
             true
@@ -58,31 +61,33 @@ class FirestoreRepository(
         val database = db ?: return@withContext true
         val cleanNickname = user.nickname.trim().lowercase()
         try {
-            val batch = database.batch()
-            val userRef = database.collection("users").document(user.id)
-            val nickRef = database.collection("nicknames").document(cleanNickname)
+            withTimeoutOrNull(2500L) {
+                val batch = database.batch()
+                val userRef = database.collection("users").document(user.id)
+                val nickRef = database.collection("nicknames").document(cleanNickname)
 
-            val userData = mapOf(
-                "id" to user.id,
-                "nickname" to user.nickname.trim(),
-                "email" to user.email,
-                "role" to user.role,
-                "points" to 0L,
-                "streak" to 0L,
-                "achievements" to emptyList<String>(),
-                "timeoutUntilMillis" to 0L,
-                "createdAt" to FieldValue.serverTimestamp()
-            )
+                val userData = mapOf(
+                    "id" to user.id,
+                    "nickname" to user.nickname.trim(),
+                    "email" to user.email,
+                    "role" to user.role,
+                    "points" to 0L,
+                    "streak" to 0L,
+                    "achievements" to emptyList<String>(),
+                    "timeoutUntilMillis" to 0L,
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
 
-            val nickData = mapOf(
-                "uid" to user.id,
-                "nickname" to user.nickname.trim(),
-                "createdAt" to FieldValue.serverTimestamp()
-            )
+                val nickData = mapOf(
+                    "uid" to user.id,
+                    "nickname" to user.nickname.trim(),
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
 
-            batch.set(userRef, userData)
-            batch.set(nickRef, nickData)
-            batch.commit().await()
+                batch.set(userRef, userData)
+                batch.set(nickRef, nickData)
+                batch.commit().await()
+            }
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error registering user profile", e)

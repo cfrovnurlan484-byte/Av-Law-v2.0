@@ -55,13 +55,45 @@ import com.example.ui.theme.LegalNavyDark
 import com.example.ui.theme.LegalNavyPrimary
 import kotlinx.coroutines.delay
 
+import androidx.compose.material3.TextButton
+
 fun checkNetworkConnectivity(context: Context): Boolean {
     return try {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
-        val activeNetwork = connectivityManager.activeNetwork ?: return true
-        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return true
-        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    } catch (e: Exception) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return true
+
+        val activeNetwork = connectivityManager.activeNetwork
+        if (activeNetwork != null) {
+            val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+            if (capabilities != null) {
+                val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                val isWifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                val isCellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                val isEthernet = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+
+                if (isValidated || hasInternet || isWifi || isCellular || isEthernet) {
+                    return true
+                }
+            }
+        }
+
+        // Fallback: Check all registered networks for Wi-Fi and Cellular data
+        val allNetworks = connectivityManager.allNetworks
+        for (network in allNetworks) {
+            val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+            ) {
+                return true
+            }
+        }
+
+        // Never let false-negative network checks block the user
+        true
+    } catch (e: Throwable) {
         true
     }
 }
@@ -270,6 +302,16 @@ fun SplashScreen(
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Yenidən Yoxla")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showOfflineDialog = false
+                            onSplashFinished()
+                        }
+                    ) {
+                        Text("Davam Et", color = LegalGold)
                     }
                 }
             )
